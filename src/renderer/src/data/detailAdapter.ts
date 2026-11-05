@@ -99,7 +99,7 @@ export function toDetailView(data: SessionDetailData, nowMs: number): DetailView
     })),
     diff: Object.fromEntries(data.files.map((f) => [f.path, f.lines])),
     filesNote:
-      data.filesSource === 'git' ? 'from git working tree' : data.filesSource === 'transcript' ? "from the session's edits" : undefined,
+      data.filesSource === 'git' ? 'not pushed yet' : data.filesSource === 'transcript' ? "from the session's edits" : undefined,
     plan,
     planMarkdown: data.plan?.markdown,
     linkPlaceholders: false,

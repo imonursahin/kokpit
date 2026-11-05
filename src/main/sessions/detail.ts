@@ -150,13 +150,25 @@ function shortModel(model: string): string {
   return `${name} ${m[2]}${m[3] && m[3].length <= 2 ? `.${m[3]}` : ''}`
 }
 
-async function gitFiles(root: string, paths: string[]): Promise<DetailFile[]> {
+async function unpushedBase(root: string): Promise<string> {
+  for (const ref of ['@{upstream}', 'origin/HEAD']) {
+    try {
+      return (await run('git', ['merge-base', 'HEAD', ref], { cwd: root, timeout: 10_000 })).stdout.trim() || 'HEAD'
+    } catch {
+      continue
+    }
+  }
+  return 'HEAD'
+}
+
+export async function gitFiles(root: string, paths: string[]): Promise<DetailFile[]> {
   if (!paths.length) return []
   const relPaths = paths.map((p) => rel(p, root))
   const opts = { cwd: root, maxBuffer: 32 * 1024 * 1024, timeout: 15_000 }
   let diff = ''
   try {
-    diff = (await run('git', ['diff', '--no-color', '--no-ext-diff', '-U3', 'HEAD', '--', ...relPaths], opts)).stdout
+    const base = await unpushedBase(root)
+    diff = (await run('git', ['diff', '--no-color', '--no-ext-diff', '-U3', base, '--', ...relPaths], opts)).stdout
   } catch (err) {
     if (!/bad revision|unknown revision|ambiguous argument 'HEAD'/i.test((err as Error).message)) throw err
   }
@@ -344,15 +356,17 @@ export async function buildDetail(item: SessionIndexItem, nowMs = Date.now()): P
     if (r) rootVotes.set(r, (rootVotes.get(r) ?? 0) + 1)
   }
   const root = [...rootVotes.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
+  let fromGit = false
   if (root) {
     try {
       files = await gitFiles(root, editedPaths.filter((p) => p.startsWith(`${root}/`)))
+      fromGit = true
       if (files.length) filesSource = 'git'
     } catch (err) {
       console.log(`[kokpit] git diff failed in ${root}: ${(err as Error).message}`)
     }
   }
-  if (!files.length && edits.length) {
+  if (!fromGit && edits.length) {
     files = transcriptFiles(edits.filter((e) => !PLAN_FILE.test(e.path)), root ?? item.cwd)
     filesSource = files.length ? 'transcript' : 'none'
   }
