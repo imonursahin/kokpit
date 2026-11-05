@@ -21,6 +21,8 @@ export function TerminalModal({
 }) {
   const host = useRef<HTMLDivElement>(null)
   const idRef = useRef<string | null>(null)
+  const startRef = useRef(start)
+  startRef.current = start
   const [exitCode, setExitCode] = useState<number | null | undefined>(undefined)
   const [error, setError] = useState<string | null>(null)
 
@@ -28,6 +30,7 @@ export function TerminalModal({
     const api = window.kokpit
     const el = host.current
     if (!api || !el) return
+    idRef.current = null
     const term = new Terminal({
       fontFamily: "'Geist Mono', monospace",
       fontSize: 12.5,
@@ -62,7 +65,7 @@ export function TerminalModal({
     const input = term.onData((d) => {
       if (idRef.current) void api.terminal.write(idRef.current, d)
     })
-    start(term.cols, term.rows)
+    startRef.current(term.cols, term.rows)
       .then((id) => {
         if (!alive) {
           void api.terminal.kill(id)
@@ -87,7 +90,7 @@ export function TerminalModal({
       if (idRef.current) void api.terminal.kill(idRef.current)
       term.dispose()
     }
-  }, [start])
+  }, [])
 
   const running = exitCode === undefined && !error
   const close = () => onClose(exitCode ?? null)

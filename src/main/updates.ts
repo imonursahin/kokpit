@@ -68,5 +68,7 @@ export async function checkForUpdate(current: string, packaged: boolean): Promis
 
 export function updateCommand(): string[] | null {
   const brew = brewBin()
-  return brew ? ['/bin/zsh', '-lc', `"${brew}" update && "${brew}" upgrade --cask ${CASK}`] : null
+  return brew
+    ? ['/bin/zsh', '-lc', `"${brew}" update && HOMEBREW_NO_ASK=1 HOMEBREW_NO_UPGRADE_QUIT_CASKS=1 "${brew}" upgrade --cask ${CASK}`]
+    : null
 }
