@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import type { CreateLibraryEntry, LibraryEntry, LibraryListing } from '../shared/library'
 import type { ConnectionId, ConnectionInfo, GithubConnectInput, JiraConnectInput, JiraIssue, MyPullRequests, PullRequestInfo } from '../shared/integrations'
-import type { AskDecision, LiveSession, RunnerEvent, RunnerMode, StartSession } from '../shared/runner'
+import type { AskDecision, ImageInput, LiveSession, RunnerEvent, RunnerMode, StartSession } from '../shared/runner'
 import type { SearchResponse } from '../shared/search'
 import type { AppInfo, DoctorCheck, KokpitSettings, PlanUsage, UpdateStatus } from '../shared/settings'
 import type { TrayState, TrayTarget } from '../shared/tray'
@@ -80,7 +80,7 @@ const api = {
   runner: {
     list: (): Promise<LiveSession[]> => ipcRenderer.invoke('runner:list'),
     start: (req: StartSession): Promise<{ tempId: string }> => ipcRenderer.invoke('runner:start', req),
-    send: (sessionId: string, text: string): Promise<void> => ipcRenderer.invoke('runner:send', sessionId, text),
+    send: (sessionId: string, text: string, images?: ImageInput[]): Promise<void> => ipcRenderer.invoke('runner:send', sessionId, text, images),
     respond: (sessionId: string, requestId: string, decision: AskDecision, note?: string): Promise<void> =>
       ipcRenderer.invoke('runner:respond', sessionId, requestId, decision, note),
     interrupt: (sessionId: string): Promise<void> => ipcRenderer.invoke('runner:interrupt', sessionId),

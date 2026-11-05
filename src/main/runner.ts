@@ -9,7 +9,7 @@ import {
   type SDKMessage,
   type SDKUserMessage
 } from '@anthropic-ai/claude-agent-sdk'
-import { isRunnerMode, type AskDecision, type LiveSession, type PendingAsk, type RunnerEvent, type StartSession } from '../shared/runner'
+import { IMAGE_TYPES, isRunnerMode, type AskDecision, type ImageInput, type LiveSession, type PendingAsk, type RunnerEvent, type StartSession } from '../shared/runner'
 import { memoryDir } from './assistant'
 
 class InputQueue implements AsyncIterable<SDKUserMessage> {
@@ -17,10 +17,16 @@ class InputQueue implements AsyncIterable<SDKUserMessage> {
   private waiters: ((r: IteratorResult<SDKUserMessage>) => void)[] = []
   private closed = false
 
-  push(text: string): void {
+  push(text: string, images: ImageInput[] = []): void {
+    const content = images.length
+      ? [
+          ...images.map((i) => ({ type: 'image' as const, source: { type: 'base64' as const, media_type: i.mediaType, data: i.data } })),
+          ...(text ? [{ type: 'text' as const, text }] : [])
+        ]
+      : text
     const msg: SDKUserMessage = {
       type: 'user',
-      message: { role: 'user', content: text },
+      message: { role: 'user', content },
       parent_tool_use_id: null,
       origin: { kind: 'human' }
     }
@@ -44,6 +50,24 @@ class InputQueue implements AsyncIterable<SDKUserMessage> {
       }
     }
   }
+}
+
+const MAX_IMAGES = 10
+const MAX_IMAGE_BASE64 = 6_900_000
+
+export function imageInputs(input: unknown): ImageInput[] {
+  if (input === undefined || input === null) return []
+  if (!Array.isArray(input)) throw new Error('invalid images')
+  if (input.length > MAX_IMAGES) throw new Error(`Attach at most ${MAX_IMAGES} images`)
+  return input.map((item: unknown) => {
+    const o = typeof item === 'object' && item !== null ? (item as Record<string, unknown>) : {}
+    const mediaType = o['mediaType']
+    const data = o['data']
+    if (typeof mediaType !== 'string' || !(IMAGE_TYPES as readonly string[]).includes(mediaType)) throw new Error('Only PNG, JPEG, GIF and WebP images can be attached')
+    if (typeof data !== 'string' || !data || !/^[A-Za-z0-9+/]+={0,2}$/.test(data)) throw new Error('invalid image')
+    if (data.length > MAX_IMAGE_BASE64) throw new Error('Images must be under 5 MB')
+    return { mediaType: mediaType as ImageInput['mediaType'], data }
+  })
 }
 
 type Pending = PendingAsk & { suggestions?: PermissionUpdate[]; resolve: (r: PermissionResult) => void }
@@ -120,17 +144,18 @@ export class Runner {
   async start(req: StartSession): Promise<{ tempId: string }> {
     if (!req || typeof req.cwd !== 'string' || typeof req.prompt !== 'string') throw new Error('invalid start request')
     if (!existsSync(req.cwd) || !statSync(req.cwd).isDirectory()) throw new Error(`Folder not found: ${req.cwd}`)
-    const hasPrompt = !!req.prompt.trim()
+    const images = imageInputs(req.images)
+    const hasPrompt = !!req.prompt.trim() || images.length > 0
     if (req.resumeId && !hasPrompt) throw new Error('Write a message first')
     if (req.mode !== undefined && !isRunnerMode(req.mode)) throw new Error('invalid mode')
     if (req.resumeId && this.find(req.resumeId)) {
-      this.send(req.resumeId, req.prompt)
+      this.send(req.resumeId, req.prompt, images)
       return { tempId: req.resumeId }
     }
 
     const tempId = req.resumeId ?? `pending-${randomUUID()}`
     const input = new InputQueue()
-    if (hasPrompt) input.push(req.prompt)
+    if (hasPrompt) input.push(req.prompt, images)
     const pending = new Map<string, Pending>()
     const info: LiveSession = {
       sessionId: tempId,
@@ -281,11 +306,12 @@ export class Runner {
     }
   }
 
-  send(sessionId: unknown, text: unknown): void {
-    if (typeof sessionId !== 'string' || typeof text !== 'string' || !text.trim()) throw new Error('invalid message')
+  send(sessionId: unknown, text: unknown, images?: unknown): void {
+    const pics = imageInputs(images)
+    if (typeof sessionId !== 'string' || typeof text !== 'string' || (!text.trim() && !pics.length)) throw new Error('invalid message')
     const l = this.find(sessionId)
     if (!l) throw new Error('This session is not running in Kokpit')
-    l.input.push(text)
+    l.input.push(text, pics)
     l.info.state = 'running'
     this.publish(l)
   }

@@ -322,11 +322,12 @@ export function App() {
             live={live}
             onBack={() => setPage('sessions')}
             onSend={async (text, opts) => {
-              if (runner.live.has(id) || live) await runner.send(live?.sessionId ?? id, text)
+              if (runner.live.has(id) || live) await runner.send(live?.sessionId ?? id, text, opts?.images)
               else
                 await runner.start({
                   cwd: openItem?.cwd ?? '',
                   prompt: text,
+                  images: opts?.images,
                   resumeId: id,
                   model: opts?.model ?? settings?.defaultModel,
                   effort: (EFFORT_CHOICES as string[]).includes(opts?.effort ?? '')

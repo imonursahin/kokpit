@@ -421,7 +421,7 @@ export function registerIpc(
 
   ipcMain.handle('runner:list', () => runner.list())
   ipcMain.handle('runner:start', (_e, req: unknown) => runner.start(req as never))
-  ipcMain.handle('runner:send', (_e, id: unknown, text: unknown) => runner.send(id, text))
+  ipcMain.handle('runner:send', (_e, id: unknown, text: unknown, images: unknown) => runner.send(id, text, images))
   ipcMain.handle('runner:respond', (_e, id: unknown, requestId: unknown, decision: unknown, note: unknown) =>
     runner.respond(id, requestId, decision, note)
   )

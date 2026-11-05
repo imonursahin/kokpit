@@ -16,9 +16,14 @@ export function isRunnerMode(v: unknown): v is RunnerMode {
   return typeof v === 'string' && Object.hasOwn(MODE_LABELS, v)
 }
 
+export const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'] as const
+
+export type ImageInput = { mediaType: (typeof IMAGE_TYPES)[number]; data: string }
+
 export type StartSession = {
   cwd: string
   prompt: string
+  images?: ImageInput[]
   title?: string
   model?: string
   effort?: RunnerEffort

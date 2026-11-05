@@ -5,6 +5,7 @@ import { MODE_LABELS, MODES, type RunnerEffort, type RunnerMode } from '@shared/
 import { libraryApi } from '@/data/libraryApi'
 import { useRunner } from '@/data/useRunner'
 import { useSlashCommands } from './SlashCommands'
+import { usePastedImages, withImageMarkers } from './PastedImages'
 import { Icon, Kbd, PrimaryButton } from './primitives'
 
 const MONO = "'Geist Mono',monospace"
@@ -59,6 +60,7 @@ export function NewSessionDialog({
   const [path, setPath] = useState('')
   const [prompt, setPrompt] = useState(jiraKey ? `Work on ${jiraKey}: ` : '')
   const slash = useSlashCommands(prompt, setPrompt, 'below')
+  const pasted = usePastedImages()
   const [title, setTitle] = useState(jiraKey ? `${jiraKey} ` : '')
   const [model, setModel] = useState(defaultModel)
   const [effort, setEffort] = useState<RunnerEffort>(defaultEffort)
@@ -100,7 +102,8 @@ export function NewSessionDialog({
     setError(null)
     start({
       cwd,
-      prompt: prompt.trim(),
+      prompt: withImageMarkers(prompt.trim(), pasted.count),
+      images: pasted.count ? pasted.payload() : undefined,
       title: title.trim() || undefined,
       model,
       effort,
@@ -275,7 +278,7 @@ export function NewSessionDialog({
             hint={
               error ? (
                 <span style={{ color: 'var(--err)' }}>{error}</span>
-              ) : prompt.trim() ? (
+              ) : prompt.trim() || pasted.count ? (
                 'Claude starts on this right away.'
               ) : (
                 'Leave it empty to open the session and write your first message there.'
@@ -283,6 +286,7 @@ export function NewSessionDialog({
             }
           >
             <div style={{ position: 'relative' }}>
+              {pasted.tray && <div style={{ marginBottom: 8 }}>{pasted.tray}</div>}
               {slash.menu}
               <textarea
                 ref={promptRef}
@@ -293,6 +297,7 @@ export function NewSessionDialog({
                 value={prompt}
                 onFocus={() => setFocus('prompt')}
                 onBlur={() => setFocus(null)}
+                onPaste={pasted.onPaste}
                 onKeyDown={(e) => {
                   slash.onKeyDown(e)
                 }}
@@ -397,7 +402,7 @@ export function NewSessionDialog({
             Cancel
           </button>
           <PrimaryButton hint="⌘↵" onClick={submit} style={{ borderRadius: 7, fontSize: 12.5, opacity: busy ? 0.6 : 1 }}>
-            {busy ? 'Starting…' : prompt.trim() ? 'Start session' : 'Open session'}
+            {busy ? 'Starting…' : prompt.trim() || pasted.count ? 'Start session' : 'Open session'}
           </PrimaryButton>
         </div>
       </div>

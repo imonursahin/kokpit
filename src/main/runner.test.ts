@@ -47,3 +47,25 @@ test('the session mode follows the CLI and can be switched while it runs', async
   await expect(runner.start({ cwd: process.cwd(), prompt: 'x', mode: 'yolo' as never })).rejects.toThrow('invalid mode')
   runner.dispose()
 })
+
+test('pasted images go to Claude as image blocks before the text', async () => {
+  const sdk = await import('@anthropic-ai/claude-agent-sdk')
+  let prompt: AsyncIterable<{ message: { content: unknown } }> | undefined
+  vi.mocked(sdk.query).mockImplementation(((args: { prompt: typeof prompt }) => {
+    prompt = args.prompt
+    return { close: vi.fn(), async *[Symbol.asyncIterator]() {} }
+  }) as never)
+  const { Runner, imageInputs } = await import('./runner')
+  const runner = new Runner(() => {})
+  await runner.start({ cwd: process.cwd(), prompt: '[Image #1] what is wrong here?', images: [{ mediaType: 'image/png', data: 'iVBORw0KGgo=' }] })
+  const first = await prompt?.[Symbol.asyncIterator]().next()
+  expect(first?.value?.message.content).toEqual([
+    { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0KGgo=' } },
+    { type: 'text', text: '[Image #1] what is wrong here?' }
+  ])
+  expect(() => imageInputs([{ mediaType: 'image/tiff', data: 'AAAA' }])).toThrow('Only PNG')
+  expect(() => imageInputs([{ mediaType: 'image/png', data: 'not base64!' }])).toThrow('invalid image')
+  expect(() => imageInputs([{ mediaType: 'image/png', data: 'A'.repeat(7_000_000) }])).toThrow('under 5 MB')
+  expect(imageInputs(undefined)).toEqual([])
+  runner.dispose()
+})

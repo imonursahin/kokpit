@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { MODE_LABELS, MODES, type AskDecision, type LiveSession, type LiveState, type RunnerMode } from '@shared/runner'
+import { MODE_LABELS, MODES, type AskDecision, type ImageInput, type LiveSession, type LiveState, type RunnerMode } from '@shared/runner'
 import type { SessionDetailData } from '@shared/sessionDetail'
 import type { SessionStatus } from '@shared/types'
 import { relativeTime } from '@shared/time'
@@ -10,6 +10,7 @@ import { Status } from '@/components/Status'
 import { Markdown } from '@/components/Markdown'
 import { StepRow, type Step } from '@/components/StepRow'
 import { useSlashCommands } from '@/components/SlashCommands'
+import { usePastedImages, withImageMarkers } from '@/components/PastedImages'
 import { toDetailView, toRich } from '@/data/detailAdapter'
 import {
   DIFF_FILES,
@@ -1216,7 +1217,7 @@ function EmptyPanel({ text }: { text: string }) {
 
 type LiveProps = {
   live?: LiveSession
-  onSend?: (text: string, opts?: { model?: string; effort?: string; mode?: RunnerMode }) => Promise<void>
+  onSend?: (text: string, opts?: { model?: string; effort?: string; mode?: RunnerMode; images?: ImageInput[] }) => Promise<void>
   onMode?: (mode: RunnerMode) => Promise<void>
   permissionMode?: RunnerMode
   onStop?: () => void
@@ -1290,6 +1291,7 @@ function Detail({
     setOutbox((o) => o.filter((m) => Date.now() - m.id < 600_000 && sentTexts.filter((x) => sameMessage(x, m.text)).length <= m.before))
   }, [sentTexts])
   const slash = useSlashCommands(text, setText, 'above')
+  const pasted = usePastedImages()
   const [model, setModel] = useState(data.model)
   const [thinking, setThinking] = useState(defaultEffort ?? data.thinking)
   const [mode, setMode] = useState<RunnerMode>(permissionMode ?? defaultMode ?? 'default')
@@ -1434,11 +1436,14 @@ function Detail({
     setRunning(false)
   }
   const send = () => {
-    const t = text.trim()
-    if (!t) return
+    const typed = text.trim()
+    const images = pasted.payload()
+    if (!typed && !images.length) return
+    const t = withImageMarkers(typed, images.length)
     if (!onSend) {
       console.log(running ? 'queue message' : 'send message', { text: t, model, thinking })
       setText('')
+      pasted.clear()
       return
     }
     if (sending.current) return
@@ -1446,13 +1451,19 @@ function Detail({
     setSendError(null)
     const modelId = modelOptions?.find((m) => m.label === model)?.id
     const id = Date.now()
+    const kept = pasted.snapshot()
     setOutbox((o) => [...o, { id, text: t, before: countSent(t) }])
     setText('')
-    onSend(t, modelOptions ? { model: modelId, effort: thinking.toLowerCase(), mode } : undefined)
+    pasted.clear()
+    onSend(t, {
+      ...(modelOptions ? { model: modelId, effort: thinking.toLowerCase(), mode } : {}),
+      ...(images.length ? { images } : {})
+    })
       .catch((err: unknown) => {
         if (!alive.current) return
         setOutbox((o) => o.filter((m) => m.id !== id))
-        setText((cur) => cur || t)
+        setText((cur) => cur || typed)
+        pasted.restore(kept)
         setSendError(err instanceof Error ? err.message : String(err))
       })
       .finally(() => {
@@ -1733,11 +1744,13 @@ function Detail({
                 flexDirection: 'column'
               }}
             >
+              {pasted.tray}
               <div style={{ padding: '12px 14px 4px', minHeight: 40, display: 'flex', position: 'relative' }}>
                 {slash.menu}
                 <textarea
                   className="bare"
                   value={text}
+                  onPaste={pasted.onPaste}
                   placeholder={data.placeholder}
                   rows={Math.min(8, text.split('\n').length)}
                   onChange={(e) => setText(e.target.value)}
@@ -1818,7 +1831,7 @@ function Detail({
                   <button
                     aria-label="Send"
                     onClick={send}
-                    disabled={!text.trim()}
+                    disabled={!text.trim() && !pasted.count}
                     style={{
                       width: 30,
                       height: 30,
@@ -1827,8 +1840,8 @@ function Detail({
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      opacity: text.trim() ? 1 : 0.35,
-                      cursor: text.trim() ? 'pointer' : 'default'
+                      opacity: text.trim() || pasted.count ? 1 : 0.35,
+                      cursor: text.trim() || pasted.count ? 'pointer' : 'default'
                     }}
                   >
                     <Icon name="arrow_upward" size={18} weight={500} color="var(--inv)" />

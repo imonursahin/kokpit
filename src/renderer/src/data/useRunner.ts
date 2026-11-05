@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { AskDecision, LiveSession, RunnerMode, StartSession } from '@shared/runner'
+import type { AskDecision, ImageInput, LiveSession, RunnerMode, StartSession } from '@shared/runner'
 
 export type Runner = {
   live: Map<string, LiveSession>
   start: (req: StartSession) => Promise<string>
-  send: (sessionId: string, text: string) => Promise<void>
+  send: (sessionId: string, text: string, images?: ImageInput[]) => Promise<void>
   respond: (sessionId: string, requestId: string, decision: AskDecision, note?: string) => Promise<void>
   interrupt: (sessionId: string) => Promise<void>
   setMode: (sessionId: string, mode: RunnerMode) => Promise<void>
@@ -69,7 +69,7 @@ export function useRunner(): Runner {
     },
     [api]
   )
-  const send = useCallback((id: string, text: string) => (api ? api.send(id, text) : Promise.resolve()), [api])
+  const send = useCallback((id: string, text: string, images?: ImageInput[]) => (api ? api.send(id, text, images) : Promise.resolve()), [api])
   const respond = useCallback(
     (id: string, requestId: string, decision: AskDecision, note?: string) =>
       api ? api.respond(id, requestId, decision, note) : Promise.resolve(),
