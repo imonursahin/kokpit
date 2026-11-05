@@ -5,7 +5,7 @@ import type { UpdateStatus } from '../shared/settings'
 import { fetchJson } from './integrations/http'
 
 const run = promisify(execFile)
-export const UPDATE_REPO = 'imonursahin/kokpit-releases'
+export const UPDATE_REPO = 'imonursahin/kokpit'
 export const CASK = 'kokpit'
 
 export function versionGreater(a: string, b: string): boolean {

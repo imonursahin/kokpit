@@ -193,7 +193,7 @@ brew upgrade --cask kokpit
 
 ### Manual
 
-Download the latest release from the [Releases](https://github.com/imonursahin/kokpit-releases/releases) page and drag **Kokpit** into Applications. The app is unsigned, so the first launch needs **right-click → Open**, then confirm.
+Download the latest release from the [Releases](https://github.com/imonursahin/kokpit/releases) page and drag **Kokpit** into Applications. The app is unsigned, so the first launch needs **right-click → Open**, then confirm.
 
 If macOS says **"Kokpit is damaged and can't be opened"**, Gatekeeper has quarantined the unsigned download. The app is fine. Clear the flag once, then open it:
 
@@ -242,9 +242,9 @@ Bump the version and push:
 npm run ship 0.2.0
 ```
 
-This bumps `package.json`, commits and pushes to `main`. The [Release workflow](.github/workflows/release.yml) then tests and builds the app, publishes the `.dmg` and `.zip` to [kokpit-releases](https://github.com/imonursahin/kokpit-releases/releases), and updates the cask in [imonursahin/homebrew-tap](https://github.com/imonursahin/homebrew-tap). Installed apps see the new version on their next update check.
+This bumps `package.json`, commits and pushes to `main`. The [Release workflow](.github/workflows/release.yml) then tests and builds the app, publishes the `.dmg` and `.zip` as a GitHub Release, and updates the cask in [imonursahin/homebrew-tap](https://github.com/imonursahin/homebrew-tap). Installed apps see the new version on their next update check.
 
-The workflow needs two repository secrets: `RELEASES_TOKEN` (can write releases to kokpit-releases) and `TAP_DEPLOY_KEY` (a deploy key with write access to the tap).
+The workflow needs one repository secret, `TAP_DEPLOY_KEY`: a deploy key with write access to the tap.
 
 ---
 
