@@ -2,7 +2,7 @@ import { createReadStream } from 'node:fs'
 import { mkdir, readdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
-import { deriveStatus, jiraKeyFrom, type SessionIndexItem } from '../../shared/sessionIndex'
+import { deriveStatus, jiraKeyFrom, type CliStatus, type SessionIndexItem } from '../../shared/sessionIndex'
 import { SessionAccumulator, type AccumulatorState } from './parse'
 import { workRepo } from './repo'
 
@@ -54,7 +54,8 @@ export class SessionStore {
   constructor(
     private readonly cachePath: string,
     private readonly root: string = PROJECTS_DIR,
-    private readonly log: (msg: string) => void = () => {}
+    private readonly log: (msg: string) => void = () => {},
+    private readonly cliStatuses: () => Map<string, CliStatus> = () => new Map()
   ) {}
 
   private async loadCache(): Promise<void> {
@@ -175,12 +176,13 @@ export class SessionStore {
 
   items(nowMs = Date.now()): SessionIndexItem[] {
     const out: SessionIndexItem[] = []
+    const cli = this.cliStatuses()
     for (const [file, entry] of Object.entries(this.cache.entries)) {
       const s = entry.state.summary
       if (!s.firstPrompt && !s.title) continue
       const lastAtMs = Date.parse(s.lastAt) || entry.mtimeMs
       const status = deriveStatus(
-        { lastAtMs, pendingTool: s.pendingTool, lastWasApiError: s.lastWasApiError, lastStopReason: s.lastStopReason },
+        { lastAtMs, pendingTool: s.pendingTool, lastWasApiError: s.lastWasApiError, lastStopReason: s.lastStopReason, cli: cli.get(s.sessionId) },
         nowMs
       )
       const title = s.customTitle || s.title || s.firstPrompt

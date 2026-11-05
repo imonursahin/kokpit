@@ -21,17 +21,27 @@ export type SessionIndexItem = {
   headless: boolean
 }
 
+export type CliStatus = 'busy' | 'idle'
+
 export type StatusInput = {
   lastAtMs: number
   pendingTool: string
   lastWasApiError: boolean
   lastStopReason: string
+  cli?: CliStatus
 }
 
 const RUNNING_WINDOW_MS = 90_000
 const WAITING_WINDOW_MS = 30 * 60_000
 
 export function deriveStatus(s: StatusInput, nowMs: number): SessionStatus {
+  const guess = guessStatus(s, nowMs)
+  if (s.cli === 'busy') return guess === 'waiting' || guess === 'error' ? guess : 'running'
+  if (s.cli === 'idle' && guess === 'running') return 'done'
+  return guess
+}
+
+function guessStatus(s: StatusInput, nowMs: number): SessionStatus {
   const idle = nowMs - s.lastAtMs
   if (s.lastWasApiError) return 'error'
   if (s.pendingTool) {

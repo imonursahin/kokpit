@@ -30,6 +30,7 @@ import { relativeTime } from '../shared/time'
 import { buildDetail } from './sessions/detail'
 import { revertFile } from './sessions/revert'
 import { KokpitSessions } from './sessions/origin'
+import { readCliStatuses } from './sessions/live'
 import { PROJECTS_DIR, SessionStore } from './sessions/store'
 
 const log = (msg: string) => console.log(`[kokpit] ${msg}`)
@@ -42,7 +43,7 @@ export function registerIpc(
     mainWindow?: () => BrowserWindow | null
   } = {}
 ): () => void {
-  const store = new SessionStore(join(app.getPath('userData'), 'session-index.json'), PROJECTS_DIR, log)
+  const store = new SessionStore(join(app.getPath('userData'), 'session-index.json'), PROJECTS_DIR, log, readCliStatuses)
   const settings = new SettingsStore(join(app.getPath('userData'), 'settings.json'))
   let claudeExecutable = ''
   const showNotices = (list: Notice[], force = false) => {
