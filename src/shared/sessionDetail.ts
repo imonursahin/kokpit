@@ -11,6 +11,7 @@ export type DetailStep = {
   del?: number
   state?: 'done' | 'running' | 'error'
   output?: string
+  agent?: { id: string; type: string }
 }
 
 export type DetailTurn =
@@ -52,4 +53,8 @@ export type SessionDetailData = {
   filesSource: 'git' | 'transcript' | 'none'
   filesRoot: string | null
   plan?: { file: string; path: string; markdown: string; updatedAt: string }
+}
+
+export type SubagentDetail = SessionDetailData & {
+  agent: { id: string; type: string; description: string; finished: boolean }
 }

@@ -1,10 +1,11 @@
 import { execFile } from 'node:child_process'
 import { createReadStream } from 'node:fs'
-import { readFile, stat } from 'node:fs/promises'
+import { readdir, readFile, stat } from 'node:fs/promises'
+import { join } from 'node:path'
 import { createInterface } from 'node:readline'
 import { promisify } from 'node:util'
 import type { SessionIndexItem } from '../../shared/sessionIndex'
-import type { DetailFile, DetailStep, DetailStepKind, DetailTurn, SessionDetailData } from '../../shared/sessionDetail'
+import type { DetailFile, DetailStep, DetailStepKind, DetailTurn, SessionDetailData, SubagentDetail } from '../../shared/sessionDetail'
 import { editAsDiff, isTestPath, lineCount, parseUnifiedDiff } from './diff'
 import { contextTokens, contextWindow, costOf, type Usage } from './pricing'
 import { gitRoot } from './repo'
@@ -134,6 +135,57 @@ function isNoise(text: string): boolean {
   return !t || t.startsWith('<command-') || t.startsWith('<local-command') || t.startsWith('<system-reminder>') || t.startsWith('Caveat:') || t.startsWith('[Request interrupted') || t.startsWith('<task-notification>')
 }
 
+const AGENT_MESSAGE = /^<agent-message from="([A-Za-z0-9_-]+)">\n?([\s\S]*?)<\/agent-message>\s*$/
+
+export function agentReport(prompt: string): { id: string; text: string } | null {
+  const m = AGENT_MESSAGE.exec(prompt.trim())
+  if (!m?.[1]) return null
+  let body = m[2] ?? ''
+  const start = body.indexOf('The report follows:')
+  if (start >= 0) body = body.slice(body.indexOf('\n', start) + 1)
+  const text = body
+    .split('\n')
+    .map((l) => (l.startsWith('  ') ? l.slice(2) : l))
+    .join('\n')
+    .replace(/^\[harness:[^\n]*\]\s*/, '')
+    .trim()
+  return { id: m[1], text }
+}
+
+type AgentMeta = { id: string; type: string; description: string; finished: boolean; toolUseId: string; active: boolean }
+
+const AGENT_ID = /^[A-Za-z0-9_-]{1,64}$/
+const AGENT_ACTIVE_MS = 10 * 60_000
+
+function subagentDir(sessionFile: string): string {
+  return join(sessionFile.replace(/\.jsonl$/, ''), 'subagents')
+}
+
+async function readAgentMeta(dir: string, id: string, nowMs: number): Promise<AgentMeta | null> {
+  try {
+    const raw: unknown = JSON.parse(await readFile(join(dir, `agent-${id}.meta.json`), 'utf8'))
+    if (!isObj(raw)) return null
+    const mtime = await stat(join(dir, `agent-${id}.jsonl`)).then((s) => s.mtimeMs, () => 0)
+    return {
+      id,
+      type: str(raw['agentType']) || 'agent',
+      description: str(raw['description']),
+      finished: raw['finished'] === true,
+      toolUseId: str(raw['toolUseId']),
+      active: nowMs - mtime < AGENT_ACTIVE_MS
+    }
+  } catch {
+    return null
+  }
+}
+
+async function subagentMetas(sessionFile: string, nowMs: number): Promise<AgentMeta[]> {
+  const dir = subagentDir(sessionFile)
+  const names = await readdir(dir).catch(() => [] as string[])
+  const ids = names.filter((n) => n.startsWith('agent-') && n.endsWith('.meta.json')).map((n) => n.slice(6, -10)).filter((id) => AGENT_ID.test(id))
+  return (await Promise.all(ids.map((id) => readAgentMeta(dir, id, nowMs)))).filter((m): m is AgentMeta => m !== null)
+}
+
 function formatDuration(ms: number): string {
   const s = Math.max(0, Math.round(ms / 1000))
   if (s < 60) return `${s}s`
@@ -209,7 +261,7 @@ function transcriptFiles(edits: EditRecord[], base: string): DetailFile[] {
 
 const PLAN_FILE = /(^|\/)([^/]*plan[^/]*\.md|plans\/[^/]+\.md)$/i
 
-export async function buildDetail(item: SessionIndexItem, nowMs = Date.now()): Promise<SessionDetailData> {
+export async function buildDetail(item: SessionIndexItem, nowMs = Date.now(), opts: { sidechain?: boolean } = {}): Promise<SessionDetailData> {
   const turns: DetailTurn[] = []
   const steps = new Map<string, DetailStep>()
   const seen = new Set<string>()
@@ -232,6 +284,7 @@ export async function buildDetail(item: SessionIndexItem, nowMs = Date.now()): P
   }
 
   let lastUserAt = ''
+  const reports = new Map<string, string>()
   let lastContext = 0
   const rl = createInterface({ input: createReadStream(item.file, { encoding: 'utf8' }), crlfDelay: Infinity })
   for await (const raw of rl) {
@@ -242,7 +295,7 @@ export async function buildDetail(item: SessionIndexItem, nowMs = Date.now()): P
     } catch {
       continue
     }
-    if (!isObj(o) || o['isSidechain'] === true) continue
+    if (!isObj(o) || (o['isSidechain'] === true && !opts.sidechain)) continue
     const type = str(o['type'])
     const ts = str(o['timestamp'])
     const message = isObj(o['message']) ? o['message'] : {}
@@ -280,8 +333,14 @@ export async function buildDetail(item: SessionIndexItem, nowMs = Date.now()): P
 
     if (type === 'attachment') {
       const att = isObj(o['attachment']) ? o['attachment'] : {}
-      if (str(att['type']) !== 'queued_command' || att['humanTurn'] === false) continue
+      if (str(att['type']) !== 'queued_command') continue
       const prompt = promptOf(att['prompt'])
+      const report = agentReport(prompt)
+      if (report) {
+        reports.set(report.id, report.text)
+        continue
+      }
+      if (att['humanTurn'] === false) continue
       const command = commandPrompt(prompt)
       if (!command && (isNoise(prompt) || prompt.trimStart().startsWith('<'))) continue
       closeTurn()
@@ -358,6 +417,15 @@ export async function buildDetail(item: SessionIndexItem, nowMs = Date.now()): P
 
   const running = item.status === 'running'
   if (!running) for (const s of steps.values()) if (s.state === 'running') s.state = 'done'
+  for (const meta of await subagentMetas(item.file, nowMs)) {
+    const step = steps.get(meta.toolUseId)
+    if (!step) continue
+    step.agent = { id: meta.id, type: meta.type }
+    const report = reports.get(meta.id)
+    if (report) step.output = clip(report, MAX_OUTPUT)
+    else if (step.output?.startsWith('Async agent launched')) step.output = undefined
+    step.state = !meta.finished && meta.active && !report ? 'running' : step.state === 'error' ? 'error' : 'done'
+  }
 
   const editedPaths = [...new Set(edits.map((e) => e.path))].filter((p) => !PLAN_FILE.test(p))
   let files: DetailFile[] = []
@@ -422,4 +490,18 @@ export async function buildDetail(item: SessionIndexItem, nowMs = Date.now()): P
     filesRoot: filesSource === 'git' ? root : null,
     plan
   }
+}
+
+export async function buildSubagentDetail(item: SessionIndexItem, agentId: string, nowMs = Date.now()): Promise<SubagentDetail> {
+  if (!AGENT_ID.test(agentId)) throw new Error('invalid agent id')
+  const dir = subagentDir(item.file)
+  const meta = await readAgentMeta(dir, agentId, nowMs)
+  if (!meta) throw new Error('Subagent not found')
+  const live = !meta.finished && meta.active
+  const detail = await buildDetail(
+    { ...item, file: join(dir, `agent-${agentId}.jsonl`), title: meta.description || item.title, status: live ? 'running' : 'done' },
+    nowMs,
+    { sidechain: true }
+  )
+  return { ...detail, agent: { id: meta.id, type: meta.type, description: meta.description, finished: !live } }
 }

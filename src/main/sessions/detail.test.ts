@@ -88,3 +88,44 @@ test('the changes list only shows files inside the session folder', async () => 
   const detail = await buildDetail({ ...item })
   expect(detail.files.map((f) => f.path)).toEqual(['src/app.ts'])
 })
+
+test('a subagent step links to its own transcript and shows its background report', async () => {
+  const { mkdirSync, mkdtempSync, writeFileSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const { buildDetail, buildSubagentDetail } = await import('./detail')
+  const dir = mkdtempSync(join(tmpdir(), 'kokpit-detail-'))
+  const file = join(dir, 's.jsonl')
+  const sub = join(dir, 's', 'subagents')
+  mkdirSync(sub, { recursive: true })
+  const report = '<agent-message from="a12ab">\n[Subagent hand-back] Framing text. The report follows:\n  [harness: control tags neutralized]\n  \n  Found 2 bugs.\n  \n  - one\n</agent-message>'
+  writeFileSync(
+    file,
+    [
+      JSON.stringify({ type: 'user', timestamp: '2026-01-01T10:00:00Z', message: { content: 'audit it' } }),
+      JSON.stringify({ type: 'assistant', timestamp: '2026-01-01T10:00:01Z', message: { id: 'm1', model: 'claude-opus-5-5', content: [{ type: 'tool_use', id: 't1', name: 'Agent', input: { description: 'Audit the code', subagent_type: 'Explore' } }] } }),
+      JSON.stringify({ type: 'user', timestamp: '2026-01-01T10:00:02Z', message: { content: [{ type: 'tool_result', tool_use_id: 't1', content: 'Async agent launched successfully.' }] }, toolUseResult: { isAsync: true } }),
+      JSON.stringify({ type: 'attachment', timestamp: '2026-01-01T10:05:00Z', attachment: { type: 'queued_command', prompt: report, humanTurn: false } })
+    ].join('\n')
+  )
+  writeFileSync(join(sub, 'agent-a12ab.meta.json'), JSON.stringify({ agentType: 'Explore', description: 'Audit the code', toolUseId: 't1', finished: true }))
+  writeFileSync(
+    join(sub, 'agent-a12ab.jsonl'),
+    [
+      JSON.stringify({ type: 'user', isSidechain: true, timestamp: '2026-01-01T10:00:02Z', message: { content: 'Audit the code in src/' } }),
+      JSON.stringify({ type: 'assistant', isSidechain: true, timestamp: '2026-01-01T10:04:00Z', message: { id: 'x1', model: 'claude-opus-5-5', content: [{ type: 'text', text: 'Found 2 bugs.' }] } })
+    ].join('\n')
+  )
+  const item = { id: 's', file, title: 't', cwd: dir, repo: 'r', branch: 'main', jira: '', prNumber: null, prUrl: '', startedAt: '2026-01-01T10:00:00Z', lastAt: '2026-01-01T10:05:00Z', costUsd: 0, costComplete: true, model: '', mode: '', status: 'done', sub: '', headless: false } as const
+  const detail = await buildDetail({ ...item })
+  const step = detail.turns.flatMap((t) => (t.kind === 'claude' ? t.steps : [])).find((s) => s.agent)
+  expect(step?.agent).toEqual({ id: 'a12ab', type: 'Explore' })
+  expect(step?.output).toBe('Found 2 bugs.\n\n- one')
+  expect(step?.state).toBe('done')
+  expect(detail.turns.filter((t) => t.kind === 'user').length).toBe(1)
+
+  const agent = await buildSubagentDetail({ ...item }, 'a12ab')
+  expect(agent.agent).toMatchObject({ type: 'Explore', description: 'Audit the code', finished: true })
+  expect(agent.turns.map((t) => (t.kind === 'user' ? `user:${t.text}` : 'claude'))).toEqual(['user:Audit the code in src/', 'claude'])
+  await expect(buildSubagentDetail({ ...item }, '../../etc')).rejects.toThrow('invalid agent id')
+})

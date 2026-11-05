@@ -27,7 +27,7 @@ import { focusAndNavigate } from './tray'
 import type { PlanUsage, UpdateStatus } from '../shared/settings'
 import { SearchIndex } from './search'
 import { relativeTime } from '../shared/time'
-import { buildDetail } from './sessions/detail'
+import { buildDetail, buildSubagentDetail } from './sessions/detail'
 import { revertFile } from './sessions/revert'
 import { KokpitSessions } from './sessions/origin'
 import { readCliStatuses } from './sessions/live'
@@ -160,6 +160,12 @@ export function registerIpc(
     }
     const [name, email] = await Promise.all([git('user.name'), git('user.email')])
     return { name: name || 'You', email }
+  })
+  ipcMain.handle('sessions:subagent', async (_e, id: unknown, agentId: unknown) => {
+    if (typeof id !== 'string' || typeof agentId !== 'string') throw new Error('invalid subagent request')
+    const item = store.items().find((i) => i.id === id)
+    if (!item) throw new Error(`session ${id} not found`)
+    return buildSubagentDetail(item, agentId)
   })
   ipcMain.handle('sessions:detail', async (_e, id: unknown) => {
     if (typeof id !== 'string') throw new Error('session id must be a string')
@@ -440,7 +446,7 @@ export function registerIpc(
     watcher?.close()
     ipcMain.removeHandler('sessions:list')
     ipcMain.removeHandler('sessions:detail')
-    for (const ch of ['library:list', 'library:save', 'library:create', 'library:delete', 'search:query', 'runner:list', 'runner:start', 'runner:send', 'runner:respond', 'runner:interrupt', 'runner:setMode', 'integrations:status', 'integrations:connectJira', 'integrations:connectGithub', 'integrations:disconnect', 'jira:issues', 'jira:issue', 'github:prs', 'app:user', 'changes:revert', 'github:prsByUrl', 'settings:get', 'settings:update', 'app:info', 'app:openFolder', 'app:keepAwake', 'app:doctor', 'app:planUsage', 'tray:refreshUsage', 'app:testNotification', 'sessions:rebuild', 'dialog:pickFiles', 'plan:save', 'jira:comment', 'github:mine', 'github:counts', 'sessions:rename', 'sessions:delete', 'mcp:status', 'mcp:remove', 'mcp:logout', 'mcp:add', 'term:mcpLogin', 'term:update', 'update:get', 'update:check', 'app:relaunch', 'term:write', 'term:resize', 'term:kill'])
+    for (const ch of ['library:list', 'library:save', 'library:create', 'library:delete', 'search:query', 'runner:list', 'runner:start', 'runner:send', 'runner:respond', 'runner:interrupt', 'runner:setMode', 'integrations:status', 'integrations:connectJira', 'integrations:connectGithub', 'integrations:disconnect', 'jira:issues', 'jira:issue', 'github:prs', 'app:user', 'changes:revert', 'github:prsByUrl', 'settings:get', 'settings:update', 'app:info', 'app:openFolder', 'app:keepAwake', 'app:doctor', 'app:planUsage', 'tray:refreshUsage', 'app:testNotification', 'sessions:rebuild', 'dialog:pickFiles', 'plan:save', 'jira:comment', 'github:mine', 'github:counts', 'sessions:rename', 'sessions:delete', 'sessions:subagent', 'mcp:status', 'mcp:remove', 'mcp:logout', 'mcp:add', 'term:mcpLogin', 'term:update', 'update:get', 'update:check', 'app:relaunch', 'term:write', 'term:resize', 'term:kill'])
       ipcMain.removeHandler(ch)
     if (awakeId !== null) powerSaveBlocker.stop(awakeId)
     runner.dispose()

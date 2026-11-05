@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { createContext, useContext, useState } from 'react'
 import { Icon, Spinner } from './primitives'
 
 export type StepKind = 'read' | 'edit' | 'create' | 'command' | 'search' | 'fetch' | 'jira'
@@ -23,19 +23,29 @@ export type Step = {
   state?: 'done' | 'running' | 'error'
   output?: string
   expanded?: boolean
+  agent?: { id: string; type: string }
 }
+
+export const SubagentOpen = createContext<((agentId: string) => void) | null>(null)
 
 export function StepRow({ step }: { step: Step }) {
   const [expanded, setExpanded] = useState(!!step.expanded)
+  const openAgent = useContext(SubagentOpen)
+  const agent = step.agent && openAgent ? step.agent : null
   const err = step.state === 'error'
   const live = step.state === 'running'
-  const canExpand = !live
+  const canExpand = !live && !agent
+  const clickable = canExpand || !!agent
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', fontSize: 12.5 }}>
       <div
-        role={canExpand ? 'button' : undefined}
-        onClick={() => canExpand && setExpanded((v) => !v)}
+        role={clickable ? 'button' : undefined}
+        title={agent ? 'Open this subagent' : undefined}
+        onClick={() => {
+          if (agent) openAgent?.(agent.id)
+          else if (canExpand) setExpanded((v) => !v)
+        }}
         className="step-row"
         style={{
           display: 'flex',
@@ -46,13 +56,14 @@ export function StepRow({ step }: { step: Step }) {
           margin: '0 -8px',
           borderRadius: 6,
           background: expanded ? 'var(--hover)' : undefined,
-          color: 'var(--tx2)'
+          color: 'var(--tx2)',
+          cursor: clickable ? 'pointer' : undefined
         }}
       >
         <span style={{ width: 16, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
           {live ? <Spinner size={11} width={1.75} /> : <Icon name={ICONS[step.kind]} size={16} color={err ? 'var(--err)' : 'var(--tx3)'} />}
         </span>
-        <span style={{ color: live ? 'var(--run)' : 'var(--tx2)', flexShrink: 0 }}>{step.label}</span>
+        <span style={{ color: live ? 'var(--run)' : 'var(--tx2)', flexShrink: 0 }}>{agent ? `${step.label} · ${agent.type}` : step.label}</span>
         <span
           style={{
             font: "12px/1.3 'Geist Mono',monospace",
@@ -80,7 +91,7 @@ export function StepRow({ step }: { step: Step }) {
         >
           {step.meta}
         </span>
-        <Icon name={live ? '' : expanded ? 'expand_less' : 'expand_more'} size={16} color="var(--tx3)" />
+        <Icon name={agent ? 'chevron_right' : live ? '' : expanded ? 'expand_less' : 'expand_more'} size={16} color="var(--tx3)" />
       </div>
       {expanded && step.output && (
         <pre

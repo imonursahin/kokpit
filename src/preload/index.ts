@@ -6,7 +6,7 @@ import type { SearchResponse } from '../shared/search'
 import type { AppInfo, DoctorCheck, KokpitSettings, PlanUsage, UpdateStatus } from '../shared/settings'
 import type { TrayState, TrayTarget } from '../shared/tray'
 import type { McpAddInput, McpServerInfo } from '../shared/mcp'
-import type { SessionDetailData } from '../shared/sessionDetail'
+import type { SessionDetailData, SubagentDetail } from '../shared/sessionDetail'
 import type { SessionIndexItem } from '../shared/sessionIndex'
 
 const api = {
@@ -55,6 +55,7 @@ const api = {
   savePlan: (sessionId: string, body: string): Promise<number> => ipcRenderer.invoke('plan:save', sessionId, body),
   listSessions: (): Promise<SessionIndexItem[]> => ipcRenderer.invoke('sessions:list'),
   sessionDetail: (id: string): Promise<SessionDetailData> => ipcRenderer.invoke('sessions:detail', id),
+  subagentDetail: (id: string, agentId: string): Promise<SubagentDetail> => ipcRenderer.invoke('sessions:subagent', id, agentId),
   renameSession: (sessionId: string, title: string): Promise<void> => ipcRenderer.invoke('sessions:rename', sessionId, title),
   deleteSession: (sessionId: string): Promise<void> => ipcRenderer.invoke('sessions:delete', sessionId),
   terminal: {

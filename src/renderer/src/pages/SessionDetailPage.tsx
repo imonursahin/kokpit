@@ -1,6 +1,6 @@
-import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { MODE_LABELS, MODES, type AskDecision, type ImageInput, type LiveSession, type LiveState, type RunnerMode } from '@shared/runner'
-import type { SessionDetailData } from '@shared/sessionDetail'
+import type { SessionDetailData, SubagentDetail } from '@shared/sessionDetail'
 import type { SessionStatus } from '@shared/types'
 import { relativeTime } from '@shared/time'
 import { ApprovalCard } from '@/components/ApprovalCard'
@@ -8,7 +8,7 @@ import { DiffFileHeader, type DiffFile } from '@/components/DiffFileHeader'
 import { Icon, KeyHint, Spinner } from '@/components/primitives'
 import { Status } from '@/components/Status'
 import { Markdown } from '@/components/Markdown'
-import { StepRow, type Step } from '@/components/StepRow'
+import { StepRow, SubagentOpen, type Step } from '@/components/StepRow'
 import { useSlashCommands } from '@/components/SlashCommands'
 import { usePastedImages, withImageMarkers } from '@/components/PastedImages'
 import { toDetailView, toRich } from '@/data/detailAdapter'
@@ -504,6 +504,107 @@ function WorkingRow({ since, busyTool }: { since?: string; busyTool: boolean }) 
       <Spinner size={12} />
       <span>{busyTool ? 'Working…' : 'Thinking…'}</span>
       {Number.isFinite(start) && <span style={{ color: 'var(--tx3)', fontVariantNumeric: 'tabular-nums' }}>{elapsedLabel(now - start)}</span>}
+    </div>
+  )
+}
+
+function SubagentModal({ sessionId, agentId, onClose }: { sessionId: string; agentId: string; onClose: () => void }) {
+  const [detail, setDetail] = useState<SubagentDetail | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const bodyRef = useRef<HTMLDivElement>(null)
+  const pinned = useRef(true)
+
+  useEffect(() => {
+    let alive = true
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const load = () => {
+      const api = window.kokpit
+      if (!api) return
+      api
+        .subagentDetail(sessionId, agentId)
+        .then((d) => {
+          if (!alive) return
+          setDetail(d)
+          setError(null)
+          if (!d.agent.finished) timer = setTimeout(load, 2000)
+        })
+        .catch((err: unknown) => {
+          if (!alive) return
+          setError(err instanceof Error ? err.message : String(err))
+          timer = setTimeout(load, 4000)
+        })
+    }
+    load()
+    return () => {
+      alive = false
+      if (timer) clearTimeout(timer)
+    }
+  }, [sessionId, agentId])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      e.stopPropagation()
+      onClose()
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [onClose])
+
+  const view = useMemo(() => (detail ? toDetailView(detail, Date.now()) : null), [detail])
+  useEffect(() => {
+    const el = bodyRef.current
+    if (el && pinned.current) el.scrollTop = el.scrollHeight
+  }, [view])
+
+  const running = detail ? !detail.agent.finished : false
+  return (
+    <div
+      onMouseDown={(e) => e.target === e.currentTarget && onClose()}
+      style={{ position: 'fixed', inset: 0, zIndex: 60, background: 'var(--scrim)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 40 }}
+    >
+      <div
+        role="dialog"
+        aria-modal
+        aria-label="Subagent"
+        style={{ width: 820, maxWidth: '100%', height: '82vh', display: 'flex', flexDirection: 'column', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 14, boxShadow: 'var(--pop)', overflow: 'hidden' }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px', borderBottom: '1px solid var(--line)' }}>
+          <Icon name="smart_toy" size={20} color="var(--tx2)" />
+          <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
+            <span style={{ fontSize: 14, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {detail?.agent.description || 'Subagent'}
+            </span>
+            <span style={{ fontSize: 12, color: 'var(--tx3)' }}>{detail ? `${detail.agent.type} · ${detail.header.cost}` : 'Loading…'}</span>
+          </div>
+          {detail && (
+            <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: running ? 'var(--run)' : 'var(--ok)' }}>
+              {running ? <Spinner size={11} /> : <Icon name="check_circle" size={16} color="var(--ok)" />}
+              {running ? 'Running' : 'Done'}
+            </span>
+          )}
+          <button onClick={onClose} aria-label="Close" style={{ display: 'flex', padding: 4, borderRadius: 6, cursor: 'pointer' }}>
+            <Icon name="close" size={18} color="var(--tx2)" />
+          </button>
+        </div>
+        <div
+          ref={bodyRef}
+          onScroll={(e) => {
+            const el = e.currentTarget
+            pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40
+          }}
+          style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: '20px 28px', display: 'flex', flexDirection: 'column', gap: 20 }}
+        >
+          {error && <span style={{ fontSize: 12.5, color: 'var(--err)' }}>{error}</span>}
+          {!view && !error && (
+            <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: 'var(--tx3)' }}>
+              <Spinner size={11} /> Loading…
+            </span>
+          )}
+          {view?.turns.map((t, i) => <TurnView key={i} turn={t} />)}
+          {running && <WorkingRow since={detail?.activeSince} busyTool={false} />}
+        </div>
+      </div>
     </div>
   )
 }
@@ -1988,17 +2089,22 @@ export function RealSessionDetailPage({
       running: s === 'running' || s === 'waiting'
     }
   }, [base, live])
+  const [agentId, setAgentId] = useState<string | null>(null)
+  const closeAgent = useCallback(() => setAgentId(null), [])
   return (
-    <Detail
-      key={data.id}
-      data={view}
-      onBack={onBack}
-      live={live}
-      onSend={onSend}
-      onStop={live ? onStop : undefined}
-      onRespond={onRespond}
-      onRevert={onRevert}
-      {...rest}
-    />
+    <SubagentOpen.Provider value={setAgentId}>
+      <Detail
+        key={data.id}
+        data={view}
+        onBack={onBack}
+        live={live}
+        onSend={onSend}
+        onStop={live ? onStop : undefined}
+        onRespond={onRespond}
+        onRevert={onRevert}
+        {...rest}
+      />
+      {agentId && <SubagentModal sessionId={data.id} agentId={agentId} onClose={closeAgent} />}
+    </SubagentOpen.Provider>
   )
 }
