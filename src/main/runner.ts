@@ -55,6 +55,17 @@ type Live = {
   input: InputQueue
   q: Query
   pending: Map<string, Pending>
+  interrupted?: boolean
+}
+
+export function stateAfterResult(
+  prev: LiveSession['state'],
+  result: { is_error: boolean; subtype: string },
+  interrupted: boolean
+): Pick<LiveSession, 'state' | 'lastError'> | null {
+  if (interrupted) return { state: 'idle', lastError: undefined }
+  if (prev === 'error' && !result.is_error) return null
+  return { state: result.is_error ? 'error' : 'idle', lastError: result.subtype === 'success' ? undefined : result.subtype }
 }
 
 function describe(toolName: string, input: Record<string, unknown>): { title: string; detail: string } {
@@ -230,10 +241,9 @@ export class Runner {
         } else if (msg.type === 'result') {
           void this.applyTitle(l)
           l.info.costUsd += msg.total_cost_usd
-          if (l.info.state !== 'error' || msg.is_error) {
-            l.info.state = msg.is_error ? 'error' : 'idle'
-            l.info.lastError = msg.subtype === 'success' ? undefined : msg.subtype
-          }
+          const next = stateAfterResult(l.info.state, msg, !!l.interrupted)
+          l.interrupted = false
+          if (next) Object.assign(l.info, next)
           this.publish(l)
         }
       }
@@ -292,6 +302,7 @@ export class Runner {
     if (typeof sessionId !== 'string') throw new Error('invalid session id')
     const l = this.find(sessionId)
     if (!l) return
+    l.interrupted = true
     await l.q.interrupt()
   }
 
