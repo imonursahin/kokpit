@@ -297,20 +297,32 @@ function EditableTitle({ title, onRename }: { title: string; onRename?: (t: stri
   const [value, setValue] = useState(title)
   const [error, setError] = useState<string | null>(null)
   const style: CSSProperties = { fontSize: 15, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }
+  const startEditing = () => {
+    setValue(title)
+    setError(null)
+    setEditing(true)
+  }
   if (!editing || !onRename)
     return (
-      <span
-        className="no-drag"
-        style={{ ...style, cursor: onRename ? 'text' : undefined }}
-        title={onRename ? 'Double-click to rename' : undefined}
-        onDoubleClick={() => {
-          if (!onRename) return
-          setValue(title)
-          setError(null)
-          setEditing(true)
-        }}
-      >
-        {title}
+      <span className="no-drag title-edit-wrap" style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
+        <span
+          style={{ ...style, cursor: onRename ? 'text' : undefined }}
+          title={onRename ? 'Double-click to rename' : undefined}
+          onDoubleClick={() => onRename && startEditing()}
+        >
+          {title}
+        </span>
+        {onRename && (
+          <button
+            className="title-edit"
+            aria-label="Rename session"
+            title="Rename"
+            onClick={startEditing}
+            style={{ display: 'flex', flexShrink: 0, padding: 3, borderRadius: 5, cursor: 'pointer' }}
+          >
+            <Icon name="edit" size={15} color="var(--tx3)" />
+          </button>
+        )}
       </span>
     )
   const commit = () => {

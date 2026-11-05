@@ -185,6 +185,10 @@ button {
 .row-pin:focus-visible,
 .row-pin.on { opacity: 1 }
 .row-pin:hover { background: var(--hover) }
+.title-edit { opacity: 0 }
+.title-edit-wrap:hover .title-edit,
+.title-edit:focus-visible { opacity: 1 }
+.title-edit:hover { background: var(--hover) }
 
 input.bare {
   font: inherit;
