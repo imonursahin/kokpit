@@ -3,14 +3,21 @@ name: Release
 on:
   push:
     branches: [main]
-    paths: [package.json]
+    paths-ignore: ['README.md', 'docs/**']
   workflow_dispatch:
+    inputs:
+      version:
+        description: Version to release, e.g. 0.3.0. Leave empty for the next patch version.
+        required: false
 
 permissions:
   contents: write
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 env:
-  RELEASE_REPO: ${{ github.repository }}
   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 jobs:
@@ -19,42 +26,48 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Read version
-        id: ver
-        run: echo "v=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
-
-      - name: Skip if this version is already out
-        id: check
-        run: |
-          DRAFT=$(gh release view "v${{ steps.ver.outputs.v }}" --repo "$RELEASE_REPO" --json isDraft -q .isDraft 2>/dev/null || echo missing)
-          if [ "$DRAFT" = "false" ]; then echo "skip=true" >> "$GITHUB_OUTPUT"; else echo "skip=false" >> "$GITHUB_OUTPUT"; fi
-
       - uses: actions/setup-node@v4
-        if: steps.check.outputs.skip == 'false'
         with:
           node-version: 22
 
+      - name: Pick the version
+        id: ver
+        env:
+          WANTED: ${{ inputs.version }}
+        run: |
+          LAST=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName 2>/dev/null | sed 's/^v//')
+          if [ -n "$WANTED" ]; then
+            VER="${WANTED#v}"
+          elif [ -z "$LAST" ]; then
+            VER=$(node -p "require('./package.json').version")
+          else
+            VER=$(node -e 'const [a, b, c] = process.argv[1].split(".").map(Number); console.log(`${a}.${b}.${c + 1}`)' "$LAST")
+          fi
+          echo "Releasing $VER (last release: ${LAST:-none})"
+          echo "v=$VER" >> "$GITHUB_OUTPUT"
+
       - name: Install, test and build
-        if: steps.check.outputs.skip == 'false'
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: |
           npm ci
+          npm version "${{ steps.ver.outputs.v }}" --no-git-tag-version --allow-same-version
           npm test
           npm run typecheck
           npm run dist
 
       - name: Publish the release
-        if: steps.check.outputs.skip == 'false'
         run: |
           VER="${{ steps.ver.outputs.v }}"
-          gh release view "v$VER" --repo "$RELEASE_REPO" >/dev/null 2>&1 \
-            || gh release create "v$VER" --repo "$RELEASE_REPO" --draft --title "Kokpit $VER" --notes "Kokpit $VER"
-          gh release upload "v$VER" --repo "$RELEASE_REPO" --clobber dist/Kokpit-*.dmg dist/Kokpit-*.zip
-          gh release edit "v$VER" --repo "$RELEASE_REPO" --draft=false
+          DRAFT=$(gh release view "v$VER" --repo "$GITHUB_REPOSITORY" --json isDraft -q .isDraft 2>/dev/null || echo missing)
+          if [ "$DRAFT" = "false" ]; then echo "v$VER is already released"; exit 1; fi
+          if [ "$DRAFT" = "true" ]; then gh release delete "v$VER" --repo "$GITHUB_REPOSITORY" --yes; fi
+          gh release create "v$VER" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --draft \
+            --title "Kokpit $VER" --generate-notes \
+            "dist/Kokpit-$VER-arm64.dmg" "dist/Kokpit-$VER-arm64-mac.zip"
+          gh release edit "v$VER" --repo "$GITHUB_REPOSITORY" --draft=false
 
       - name: Update the Homebrew cask
-        if: steps.check.outputs.skip == 'false'
         env:
           DEPLOY_KEY: ${{ secrets.TAP_DEPLOY_KEY }}
         run: |
@@ -67,7 +80,7 @@ jobs:
           export GIT_SSH_COMMAND="ssh -i ~/.ssh/tap_key -o IdentitiesOnly=yes"
           git clone git@github.com:imonursahin/homebrew-tap.git tap
           mkdir -p tap/Casks
-          sed -e "s/@VERSION@/$VER/" -e "s/@SHA@/$SHA/" -e "s#@REPO@#$RELEASE_REPO#" build/kokpit.rb > tap/Casks/kokpit.rb
+          sed -e "s/@VERSION@/$VER/" -e "s/@SHA@/$SHA/" -e "s#@REPO@#$GITHUB_REPOSITORY#" build/kokpit.rb > tap/Casks/kokpit.rb
           cd tap
           git config user.name "Onur Şahin"
           git config user.email "31903339+imonursahin@users.noreply.github.com"

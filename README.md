@@ -236,13 +236,11 @@ No API keys are needed to build or run. Jira and GitHub are connected from the C
 
 ## Releasing
 
-Bump the version and push:
+Releases are automatic. Every push to `main` that changes more than the README or `docs/` starts the [Release workflow](.github/workflows/release.yml). It takes the latest release, bumps the patch version (0.1.0 → 0.1.1), tests and builds the app, publishes the `.dmg` and `.zip` as a GitHub Release, and updates the cask in [imonursahin/homebrew-tap](https://github.com/imonursahin/homebrew-tap). The version in `package.json` is not used for this and does not need to be changed.
 
-```bash
-npm run ship 0.2.0
-```
+For a minor or major version, run the workflow from the Actions tab and enter the version, e.g. `0.2.0`.
 
-This bumps `package.json`, commits and pushes to `main`. The [Release workflow](.github/workflows/release.yml) then tests and builds the app, publishes the `.dmg` and `.zip` as a GitHub Release, and updates the cask in [imonursahin/homebrew-tap](https://github.com/imonursahin/homebrew-tap). Installed apps see the new version on their next update check.
+Installed apps check for a new version 10 seconds after launch and every 4 hours, show a notification, and update through Homebrew in one click.
 
 The workflow needs one repository secret, `TAP_DEPLOY_KEY`: a deploy key with write access to the tap.
 

@@ -220,7 +220,7 @@ export function registerIpc(
     const status = await checkForUpdate(app.getVersion(), app.isPackaged)
     updateStatus = status
     for (const win of BrowserWindow.getAllWindows()) win.webContents.send('update:status', status)
-    if (status.hasUpdate && status.latest && status.latest !== notifiedVersion && Notification.isSupported()) {
+    if (app.isPackaged && status.hasUpdate && status.latest && status.latest !== notifiedVersion && Notification.isSupported()) {
       notifiedVersion = status.latest
       const note = new Notification({
         title: 'Kokpit update available',

@@ -12,8 +12,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test": "vitest run",
     "postinstall": "node node_modules/electron/install.js && sh scripts/dev-app-name.sh",
-    "dist": "electron-vite build && electron-builder --mac --publish never",
-    "ship": "sh scripts/release.sh"
+    "dist": "electron-vite build && electron-builder --mac --publish never"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.318"
