@@ -43,13 +43,15 @@ export function NewSessionDialog({
   onClose,
   onStarted,
   defaultModel = 'claude-opus-5-5',
-  defaultEffort = 'high'
+  defaultEffort = 'high',
+  defaultMode = 'default'
 }: {
   jiraKey?: string
   onClose: () => void
   onStarted: (tempId: string) => void
   defaultModel?: string
   defaultEffort?: RunnerEffort
+  defaultMode?: RunnerMode
 }) {
   const { start } = useRunner()
   const [repos, setRepos] = useState<LibraryRepo[]>([])
@@ -60,7 +62,7 @@ export function NewSessionDialog({
   const [title, setTitle] = useState(jiraKey ? `${jiraKey} ` : '')
   const [model, setModel] = useState(defaultModel)
   const [effort, setEffort] = useState<RunnerEffort>(defaultEffort)
-  const [mode, setMode] = useState<RunnerMode>('default')
+  const [mode, setMode] = useState<RunnerMode>(defaultMode)
   const [focus, setFocus] = useState<Focus>('prompt')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)

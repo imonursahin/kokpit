@@ -1,4 +1,4 @@
-import type { RunnerEffort } from './runner'
+import type { RunnerEffort, RunnerMode } from './runner'
 
 export const NOTIFY_EVENTS = [
   { id: 'sessionWaiting', label: 'A session needs you', hint: 'It asks for permission or has a question' },
@@ -14,6 +14,7 @@ export type NotifyEvent = (typeof NOTIFY_EVENTS)[number]['id']
 export type KokpitSettings = {
   defaultModel: string
   defaultEffort: RunnerEffort
+  defaultMode: RunnerMode
   showHeadless: boolean
   claudeExecutable: string
   assistantHome: string
@@ -30,6 +31,7 @@ export const GITHUB_REFRESH_CHOICES = [1, 2, 5, 10, 30]
 export const DEFAULT_SETTINGS: KokpitSettings = {
   defaultModel: 'claude-opus-5-5',
   defaultEffort: 'high',
+  defaultMode: 'default',
   showHeadless: false,
   claudeExecutable: '',
   assistantHome: '',

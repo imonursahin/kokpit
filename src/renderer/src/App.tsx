@@ -332,7 +332,7 @@ export function App() {
                   effort: (EFFORT_CHOICES as string[]).includes(opts?.effort ?? '')
                     ? (opts?.effort as KokpitSettings['defaultEffort'])
                     : settings?.defaultEffort,
-                  mode: opts?.mode
+                  mode: opts?.mode ?? settings?.defaultMode
                 })
             }}
             permissionMode={live?.mode ?? (isRunnerMode(openItem?.mode) ? openItem.mode : undefined)}
@@ -340,6 +340,7 @@ export function App() {
             modelOptions={MODEL_CHOICES}
             effortOptions={EFFORT_CHOICES}
             defaultEffort={settings?.defaultEffort}
+            defaultMode={settings?.defaultMode}
             onAttach={() => window.kokpit?.pickFiles() ?? Promise.resolve([])}
             onRename={detail.data ? (title) => window.kokpit?.renameSession(id, title) ?? Promise.resolve() : undefined}
             onDelete={
@@ -398,6 +399,7 @@ export function App() {
           jiraKey={newSession.jiraKey}
           defaultModel={settings?.defaultModel}
           defaultEffort={settings?.defaultEffort}
+          defaultMode={settings?.defaultMode}
           onClose={() => setNewSession(null)}
           onStarted={(tempId) => {
             setNewSession(null)

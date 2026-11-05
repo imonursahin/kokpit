@@ -1,6 +1,7 @@
 import { existsSync, statSync } from 'node:fs'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
+import { MODES } from '../shared/runner'
 import { DEFAULT_SETTINGS, EFFORT_CHOICES, GITHUB_REFRESH_CHOICES, MODEL_CHOICES, NOTIFY_EVENTS, type KokpitSettings } from '../shared/settings'
 
 export function sanitizeSettings(input: unknown, base: KokpitSettings = DEFAULT_SETTINGS): KokpitSettings {
@@ -9,6 +10,8 @@ export function sanitizeSettings(input: unknown, base: KokpitSettings = DEFAULT_
   if (typeof o['defaultModel'] === 'string' && MODEL_CHOICES.some((m) => m.id === o['defaultModel'])) out.defaultModel = o['defaultModel']
   if (typeof o['defaultEffort'] === 'string' && (EFFORT_CHOICES as string[]).includes(o['defaultEffort']))
     out.defaultEffort = o['defaultEffort'] as KokpitSettings['defaultEffort']
+  if (typeof o['defaultMode'] === 'string' && (MODES as string[]).includes(o['defaultMode']))
+    out.defaultMode = o['defaultMode'] as KokpitSettings['defaultMode']
   if (typeof o['showHeadless'] === 'boolean') out.showHeadless = o['showHeadless']
   if (typeof o['claudeExecutable'] === 'string') {
     const p = o['claudeExecutable'].trim()

@@ -16,3 +16,8 @@ test('notification settings merge per event and ignore junk', () => {
   expect(s.notify.prChecksFailed).toBe(false)
   expect('bogus' in s.notify).toBe(false)
 })
+
+test('keeps a known permission mode and ignores an unknown one', () => {
+  expect(sanitizeSettings({ defaultMode: 'auto' }).defaultMode).toBe('auto')
+  expect(sanitizeSettings({ defaultMode: 'yolo' }).defaultMode).toBe(DEFAULT_SETTINGS.defaultMode)
+})

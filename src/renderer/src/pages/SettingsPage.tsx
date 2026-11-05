@@ -11,6 +11,7 @@ import {
   type NotifyEvent
 } from '@shared/settings'
 import type { ThemePref } from '@/data/theme'
+import { MODE_LABELS, MODES } from '@shared/runner'
 import { Icon, Spinner } from '@/components/primitives'
 import { Markdown } from '@/components/Markdown'
 import { TerminalModal } from '@/components/TerminalModal'
@@ -502,6 +503,13 @@ export function SettingsPage({
                       value={settings?.defaultEffort ?? 'high'}
                       onChange={(v) => void save({ defaultEffort: v })}
                       options={EFFORT_CHOICES.map((e) => ({ id: e, label: e[0]?.toUpperCase() + e.slice(1) }))}
+                    />
+                  </Row>
+                  <Row label="Permission mode" hint="Ask stops for every command. Auto runs safe actions without asking. Bypass never asks.">
+                    <Segmented
+                      value={settings?.defaultMode ?? 'default'}
+                      onChange={(v) => void save({ defaultMode: v })}
+                      options={MODES.map((m) => ({ id: m, label: MODE_LABELS[m] }))}
                     />
                   </Row>
                 </Group>

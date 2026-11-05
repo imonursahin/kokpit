@@ -1230,6 +1230,7 @@ type LiveProps = {
   modelOptions?: { id: string; label: string }[]
   effortOptions?: string[]
   defaultEffort?: string
+  defaultMode?: RunnerMode
 }
 
 const LIVE_STATUS: Record<LiveState, SessionStatus> = {
@@ -1258,6 +1259,7 @@ function Detail({
   modelOptions,
   effortOptions,
   defaultEffort,
+  defaultMode,
   onMode,
   permissionMode
 }: { data: DetailView; onBack: () => void } & LiveProps) {
@@ -1290,7 +1292,7 @@ function Detail({
   const slash = useSlashCommands(text, setText, 'above')
   const [model, setModel] = useState(data.model)
   const [thinking, setThinking] = useState(defaultEffort ?? data.thinking)
-  const [mode, setMode] = useState<RunnerMode>(permissionMode ?? 'default')
+  const [mode, setMode] = useState<RunnerMode>(permissionMode ?? defaultMode ?? 'default')
   useEffect(() => {
     if (permissionMode) setMode(permissionMode)
   }, [permissionMode])
@@ -1298,7 +1300,7 @@ function Detail({
     setMode(next)
     onMode?.(next).catch((err: unknown) => {
       if (!alive.current) return
-      setMode(permissionMode ?? 'default')
+      setMode(permissionMode ?? defaultMode ?? 'default')
       setSendError(err instanceof Error ? err.message : String(err))
     })
   }
