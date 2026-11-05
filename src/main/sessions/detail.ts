@@ -278,6 +278,18 @@ export async function buildDetail(item: SessionIndexItem, nowMs = Date.now()): P
       continue
     }
 
+    if (type === 'attachment') {
+      const att = isObj(o['attachment']) ? o['attachment'] : {}
+      if (str(att['type']) !== 'queued_command' || att['humanTurn'] === false) continue
+      const prompt = promptOf(att['prompt'])
+      const command = commandPrompt(prompt)
+      if (!command && (isNoise(prompt) || prompt.trimStart().startsWith('<'))) continue
+      closeTurn()
+      turns.push({ kind: 'user', text: clip(command || prompt, MAX_TEXT) })
+      lastUserAt = ts
+      continue
+    }
+
     if (type === 'system' && str(o['subtype']) === 'local_command') {
       const output = localCommandOutput(str(o['content']))
       if (output) {

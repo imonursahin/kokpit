@@ -40,3 +40,29 @@ test('a claude turn keeps text and tool steps in the order they happened', async
     'text:Found it.\n\nDone.'
   ])
 })
+
+test('a message sent while Claude was working shows up where it was sent', async () => {
+  const { mkdtempSync, writeFileSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const { buildDetail } = await import('./detail')
+  const dir = mkdtempSync(join(tmpdir(), 'kokpit-detail-'))
+  const file = join(dir, 's.jsonl')
+  const a = (text: string, ts: string) => JSON.stringify({ type: 'assistant', timestamp: ts, message: { id: ts, model: 'claude-opus-5-5', content: [{ type: 'text', text }] } })
+  const queued = (prompt: string, ts: string, humanTurn = true) =>
+    JSON.stringify({ type: 'attachment', timestamp: ts, attachment: { type: 'queued_command', prompt, humanTurn } })
+  writeFileSync(
+    file,
+    [
+      JSON.stringify({ type: 'user', timestamp: '2026-01-01T10:00:00Z', message: { content: 'fix it' } }),
+      a('Working on it.', '2026-01-01T10:00:01Z'),
+      queued('also check the tests', '2026-01-01T10:00:02Z'),
+      queued('<task-notification>done</task-notification>', '2026-01-01T10:00:03Z'),
+      queued('subagent report', '2026-01-01T10:00:04Z', false),
+      a('Tests checked too.', '2026-01-01T10:00:05Z')
+    ].join('\n')
+  )
+  const item = { id: 's', file, title: 't', cwd: dir, repo: 'r', branch: 'main', jira: '', prNumber: null, prUrl: '', startedAt: '2026-01-01T10:00:00Z', lastAt: '2026-01-01T10:00:05Z', costUsd: 0, costComplete: true, model: '', mode: '', status: 'done', sub: '', headless: false } as const
+  const detail = await buildDetail({ ...item })
+  expect(detail.turns.map((t) => (t.kind === 'user' ? `user:${t.text}` : 'claude'))).toEqual(['user:fix it', 'claude', 'user:also check the tests', 'claude'])
+})
