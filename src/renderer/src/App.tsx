@@ -19,6 +19,7 @@ import { useSessions } from '@/data/useSessions'
 import { useTheme } from '@/data/theme'
 import { useRunner } from '@/data/useRunner'
 import { useConfigCounts } from '@/data/useCounts'
+import { openAboutSettings } from '@/data/useUpdate'
 import { NewSessionDialog } from '@/components/NewSessionDialog'
 import type { SearchResult } from '@/mock/search'
 
@@ -166,6 +167,7 @@ export function App() {
       window.kokpit?.onNavigate((t) => {
         if (t.page === 'session' && t.id) open(t.id)
         else if (t.page === 'prs' || t.page === 'overview') setPage(t.page)
+        else if (t.page === 'about') openAboutSettings(setPage)
       }),
     [open]
   )

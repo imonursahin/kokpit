@@ -11,4 +11,4 @@ export type TrayState = {
   usageAt: string
 }
 
-export type TrayTarget = { page: 'session'; id: string } | { page: 'overview' }
+export type TrayTarget = { page: 'session'; id: string } | { page: 'overview' } | { page: 'about' }

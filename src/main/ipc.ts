@@ -23,6 +23,7 @@ import { SettingsStore } from './settings'
 import { runDoctor } from './doctor'
 import { planUsage } from './planUsage'
 import { checkForUpdate, updateCommand } from './updates'
+import { focusAndNavigate } from './tray'
 import type { PlanUsage, UpdateStatus } from '../shared/settings'
 import { SearchIndex } from './search'
 import { relativeTime } from '../shared/time'
@@ -214,13 +215,27 @@ export function registerIpc(
     return terminals.start(cmd, cols, rows)
   })
   let updateStatus: UpdateStatus | null = null
+  let notifiedVersion = ''
   const refreshUpdate = async () => {
-    updateStatus = await checkForUpdate(app.getVersion(), app.isPackaged)
-    for (const win of BrowserWindow.getAllWindows()) win.webContents.send('update:status', updateStatus)
-    return updateStatus
+    const status = await checkForUpdate(app.getVersion(), app.isPackaged)
+    updateStatus = status
+    for (const win of BrowserWindow.getAllWindows()) win.webContents.send('update:status', status)
+    if (status.hasUpdate && status.latest && status.latest !== notifiedVersion && Notification.isSupported()) {
+      notifiedVersion = status.latest
+      const note = new Notification({
+        title: 'Kokpit update available',
+        body: `${status.latest} is out (you have ${status.current}). Click to update.`
+      })
+      note.on('click', () => {
+        const w = opts.mainWindow?.()
+        if (w) focusAndNavigate(w, { page: 'about' })
+      })
+      note.show()
+    }
+    return status
   }
   const updateFirst = setTimeout(() => void refreshUpdate(), 10_000)
-  const updateTick = setInterval(() => void refreshUpdate(), 6 * 3_600_000)
+  const updateTick = setInterval(() => void refreshUpdate(), 4 * 3_600_000)
   ipcMain.handle('update:get', () => updateStatus ?? refreshUpdate())
   ipcMain.handle('update:check', () => refreshUpdate())
   ipcMain.handle('app:relaunch', () => {
