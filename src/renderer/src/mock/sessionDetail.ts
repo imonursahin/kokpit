@@ -20,13 +20,13 @@ export type SessionHeader = {
   context?: { used: number; window: number }
 }
 
-export type TurnPart = { kind: 'text'; text: string } | { kind: 'steps'; steps: Step[] }
+export type TurnPart = { kind: 'text'; text: string } | { kind: 'thinking'; text: string } | { kind: 'steps'; steps: Step[] }
 
 export type TurnMeta = { model: string; thinking?: string; time: string; cost: string }
 
 export type Turn =
-  | { kind: 'earlier'; text: string }
-  | { kind: 'user'; text: Rich }
+  | { kind: 'earlier'; text: string; more?: boolean }
+  | { kind: 'user'; text: Rich; uuid?: string; parentUuid?: string }
   | { kind: 'claude'; name?: boolean; steps: Step[]; text?: Rich; blocks?: TextBlock[]; markdown?: string; output?: string; parts?: TurnPart[]; meta?: TurnMeta }
   | { kind: 'ask'; request: ApprovalRequest }
 

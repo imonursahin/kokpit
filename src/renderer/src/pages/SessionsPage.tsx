@@ -75,6 +75,8 @@ function CenterState({ children }: { children: React.ReactNode }) {
   )
 }
 
+const RECENT_DAYS = 14
+
 export function SessionsPage({
   sessions,
   state,
@@ -110,17 +112,25 @@ export function SessionsPage({
   const listRef = useRef<HTMLDivElement>(null)
   const pendingG = useRef(false)
 
-  const counts = useMemo(() => {
-    const c: Record<Tab, number> = { all: sessions.length, waiting: 0, running: 0, error: 0, done: 0 }
-    for (const s of sessions) c[s.status] += 1
-    return c
-  }, [sessions])
+  const [showAll, setShowAll] = useState(false)
+  const scoped = useMemo(() => {
+    if (showAll) return sessions
+    const since = Date.now() - RECENT_DAYS * 86_400_000
+    return sessions.filter((s) => s.pinned || s.status !== 'done' || !s.lastAt || Date.parse(s.lastAt) >= since)
+  }, [sessions, showAll])
+  const olderCount = sessions.length - scoped.length
 
-  const jiraKeys = useMemo(() => [...new Set(sessions.map((s) => s.jira).filter(Boolean))].sort(), [sessions])
+  const counts = useMemo(() => {
+    const c: Record<Tab, number> = { all: scoped.length, waiting: 0, running: 0, error: 0, done: 0 }
+    for (const s of scoped) c[s.status] += 1
+    return c
+  }, [scoped])
+
+  const jiraKeys = useMemo(() => [...new Set(scoped.map((s) => s.jira).filter(Boolean))].sort(), [scoped])
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase()
-    return sessions
+    return (q ? sessions : scoped)
       .filter(
         (s) =>
           (tab === 'all' || s.status === tab) &&
@@ -128,7 +138,7 @@ export function SessionsPage({
           (!q || s.title.toLowerCase().includes(q))
       )
       .sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned))
-  }, [sessions, tab, jira, query])
+  }, [sessions, scoped, tab, jira, query])
 
   const selected = rows.find((r) => r.id === selectedId) ?? null
 
@@ -357,6 +367,16 @@ export function SessionsPage({
               onPin={() => onPin(s.id)}
             />
           ))}
+
+        {isList && olderCount > 0 && (
+          <button
+            onClick={() => setShowAll(true)}
+            style={{ alignSelf: 'center', display: 'flex', alignItems: 'center', gap: 6, margin: '18px 0 24px', height: 32, padding: '0 14px', border: '1px solid var(--line)', borderRadius: 8, fontSize: 12.5, fontWeight: 500, color: 'var(--tx2)', cursor: 'pointer', flexShrink: 0 }}
+          >
+            <Icon name="history" size={16} color="var(--tx3)" />
+            Load all · {olderCount} older than {RECENT_DAYS} days
+          </button>
+        )}
 
         {state === 'loading' &&
           SKELETON.map(([w, w2], i) => (

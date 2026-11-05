@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { SessionDetailData } from '@shared/sessionDetail'
 
-export function useSessionDetail(id: string | null, version: string): { data: SessionDetailData | null; error: string | null } {
+export function useSessionDetail(id: string | null, version: string, maxTurns?: number): { data: SessionDetailData | null; error: string | null } {
   const [data, setData] = useState<SessionDetailData | null>(null)
   const [error, setError] = useState<string | null>(null)
   const owner = useRef<string | null>(null)
@@ -13,7 +13,7 @@ export function useSessionDetail(id: string | null, version: string): { data: Se
     if (data?.id !== id) setData(null)
     setError(null)
     api
-      .sessionDetail(id)
+      .sessionDetail(id, maxTurns)
       .then((d) => {
         if (owner.current === id) setData(d)
       })
@@ -21,7 +21,7 @@ export function useSessionDetail(id: string | null, version: string): { data: Se
         if (owner.current === id) setError(err.message)
       })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, version])
+  }, [id, version, maxTurns])
 
   return { data: data?.id === id ? data : null, error }
 }

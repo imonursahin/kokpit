@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import type { CreateLibraryEntry, LibraryEntry, LibraryListing } from '../shared/library'
 import type { ConnectionId, ConnectionInfo, GithubConnectInput, JiraConnectInput, JiraIssue, MyPullRequests, PullRequestInfo } from '../shared/integrations'
-import type { AskDecision, ImageInput, LiveSession, RunnerEvent, RunnerMode, StartSession } from '../shared/runner'
+import type { AskDecision, ImageInput, LiveSession, RunnerEvent, RunnerMode, SlashCommandInfo, StartSession, TurnSettings } from '../shared/runner'
 import type { SearchResponse } from '../shared/search'
 import type { AppInfo, DoctorCheck, KokpitSettings, PlanUsage, UpdateStatus } from '../shared/settings'
 import type { TrayState, TrayTarget } from '../shared/tray'
@@ -54,7 +54,7 @@ const api = {
   pickFiles: (): Promise<string[]> => ipcRenderer.invoke('dialog:pickFiles'),
   savePlan: (sessionId: string, body: string): Promise<number> => ipcRenderer.invoke('plan:save', sessionId, body),
   listSessions: (): Promise<SessionIndexItem[]> => ipcRenderer.invoke('sessions:list'),
-  sessionDetail: (id: string): Promise<SessionDetailData> => ipcRenderer.invoke('sessions:detail', id),
+  sessionDetail: (id: string, maxTurns?: number): Promise<SessionDetailData> => ipcRenderer.invoke('sessions:detail', id, maxTurns),
   subagentDetail: (id: string, agentId: string): Promise<SubagentDetail> => ipcRenderer.invoke('sessions:subagent', id, agentId),
   renameSession: (sessionId: string, title: string): Promise<void> => ipcRenderer.invoke('sessions:rename', sessionId, title),
   deleteSession: (sessionId: string): Promise<void> => ipcRenderer.invoke('sessions:delete', sessionId),
@@ -78,13 +78,19 @@ const api = {
   },
   revertFile: (sessionId: string, path: string): Promise<'restored' | 'trashed'> => ipcRenderer.invoke('changes:revert', sessionId, path),
   search: (query: string): Promise<SearchResponse> => ipcRenderer.invoke('search:query', query),
+  mentionFiles: (cwd: string, query: string): Promise<string[]> => ipcRenderer.invoke('files:mention', cwd, query),
+  runShell: (cwd: string, command: string): Promise<{ command: string; code: number | null; output: string; truncated: boolean }> =>
+    ipcRenderer.invoke('shell:run', cwd, command),
+  appendMemory: (target: 'project' | 'user', cwd: string, note: string): Promise<string> => ipcRenderer.invoke('memory:append', target, cwd, note),
   runner: {
     list: (): Promise<LiveSession[]> => ipcRenderer.invoke('runner:list'),
     start: (req: StartSession): Promise<{ tempId: string }> => ipcRenderer.invoke('runner:start', req),
-    send: (sessionId: string, text: string, images?: ImageInput[]): Promise<void> => ipcRenderer.invoke('runner:send', sessionId, text, images),
-    respond: (sessionId: string, requestId: string, decision: AskDecision, note?: string): Promise<void> =>
-      ipcRenderer.invoke('runner:respond', sessionId, requestId, decision, note),
+    send: (sessionId: string, text: string, images?: ImageInput[], settings?: TurnSettings): Promise<void> =>
+      ipcRenderer.invoke('runner:send', sessionId, text, images, settings),
+    respond: (sessionId: string, requestId: string, decision: AskDecision, note?: string, answers?: Record<string, string>): Promise<void> =>
+      ipcRenderer.invoke('runner:respond', sessionId, requestId, decision, note, answers),
     interrupt: (sessionId: string): Promise<void> => ipcRenderer.invoke('runner:interrupt', sessionId),
+    commands: (cwd: string): Promise<SlashCommandInfo[]> => ipcRenderer.invoke('runner:commands', cwd),
     setMode: (sessionId: string, mode: RunnerMode): Promise<void> => ipcRenderer.invoke('runner:setMode', sessionId, mode),
     onEvent: (cb: (e: RunnerEvent) => void): (() => void) => {
       const handler = (_e: IpcRendererEvent, ev: RunnerEvent) => cb(ev)

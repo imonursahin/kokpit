@@ -1,15 +1,17 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { createContext, Fragment, useCallback, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { MODE_LABELS, MODES, type AskDecision, type ImageInput, type LiveSession, type LiveState, type RunnerMode } from '@shared/runner'
 import type { SessionDetailData, SubagentDetail } from '@shared/sessionDetail'
 import type { SessionStatus } from '@shared/types'
 import { relativeTime } from '@shared/time'
 import { ApprovalCard } from '@/components/ApprovalCard'
+import { QuestionCard } from '@/components/QuestionCard'
 import { DiffFileHeader, type DiffFile } from '@/components/DiffFileHeader'
 import { Icon, KeyHint, Spinner } from '@/components/primitives'
 import { Status } from '@/components/Status'
 import { Markdown } from '@/components/Markdown'
 import { StepRow, SubagentOpen, type Step } from '@/components/StepRow'
 import { useSlashCommands } from '@/components/SlashCommands'
+import { useFileMentions } from '@/components/FileMentions'
 import { usePastedImages, withImageMarkers } from '@/components/PastedImages'
 import { toDetailView, toRich } from '@/data/detailAdapter'
 import {
@@ -616,7 +618,8 @@ const STEP_NOUN: Record<Step['kind'], [string, string]> = {
   create: ['new file', 'new files'],
   search: ['search', 'searches'],
   fetch: ['fetch', 'fetches'],
-  jira: ['Jira call', 'Jira calls']
+  jira: ['Jira call', 'Jira calls'],
+  todo: ['todo update', 'todo updates']
 }
 
 function stepSummary(steps: Step[]): string {
@@ -661,13 +664,46 @@ function StepGroup({ steps }: { steps: Step[] }) {
   )
 }
 
+function lastClaudeText(turns: Turn[]): string {
+  const last = [...turns].reverse().find((t) => t.kind === 'claude')
+  if (!last || last.kind !== 'claude') return ''
+  return [last.markdown ?? '', ...(last.parts ?? []).map((p) => (p.kind === 'text' ? p.text : ''))].join('\n')
+}
+
+function ThinkingPart({ text }: { text: string }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column' }}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="step-row"
+        style={{ display: 'flex', alignItems: 'center', gap: 8, height: 28, padding: '0 8px', margin: '0 -8px', borderRadius: 6, fontSize: 12.5, color: 'var(--tx3)', textAlign: 'left', cursor: 'pointer' }}
+      >
+        <Icon name="psychology" size={16} color="var(--tx3)" />
+        <span style={{ fontStyle: 'italic' }}>Thinking</span>
+        <span style={{ flex: 1 }} />
+        <Icon name={open ? 'expand_less' : 'expand_more'} size={18} color="var(--tx3)" />
+      </button>
+      {open && (
+        <div style={{ margin: '2px 0 4px 24px', paddingLeft: 12, borderLeft: '2px solid var(--line)' }}>
+          <Markdown source={text} size={12.5} muted />
+        </div>
+      )}
+    </div>
+  )
+}
+
 function OrderedParts({ parts }: { parts: TurnPart[] }) {
-  const final = parts[parts.length - 1]?.kind === 'text' ? parts.length - 1 : -1
+  const lastText = parts.map((p) => p.kind).lastIndexOf('text')
+  const final = lastText >= 0 && parts.slice(lastText + 1).every((p) => p.kind === 'thinking') ? lastText : -1
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       {parts.map((p, i) =>
         p.kind === 'steps' ? (
           <StepGroup key={i} steps={p.steps} />
+        ) : p.kind === 'thinking' ? (
+          <ThinkingPart key={i} text={p.text} />
         ) : i === final ? (
           <Markdown key={i} source={p.text} size={13.5} />
         ) : (
@@ -678,11 +714,19 @@ function OrderedParts({ parts }: { parts: TurnPart[] }) {
   )
 }
 
-function TurnView({ turn }: { turn: Turn }) {
+type RewindTarget = { parentUuid: string; text: string }
+const RewindOpen = createContext<((t: RewindTarget) => void) | null>(null)
+
+function TurnView({ turn, onLoadEarlier }: { turn: Turn; onLoadEarlier?: () => void }) {
+  const rewind = useContext(RewindOpen)
   if (turn.kind === 'earlier')
     return (
       <div
+        role={turn.more && onLoadEarlier ? 'button' : undefined}
+        title={turn.more && onLoadEarlier ? 'Load earlier turns' : undefined}
+        onClick={turn.more ? onLoadEarlier : undefined}
         style={{
+          cursor: turn.more && onLoadEarlier ? 'pointer' : undefined,
           alignSelf: 'center',
           display: 'flex',
           alignItems: 'center',
@@ -704,7 +748,7 @@ function TurnView({ turn }: { turn: Turn }) {
   if (turn.kind === 'user')
     return (
       <div
-        className="selectable"
+        className="selectable turn-user"
         style={{
           alignSelf: 'flex-end',
           maxWidth: '84%',
@@ -717,10 +761,21 @@ function TurnView({ turn }: { turn: Turn }) {
           textWrap: 'pretty',
           whiteSpace: 'pre-wrap',
           overflowWrap: 'anywhere',
-          flexShrink: 0
+          flexShrink: 0,
+          position: 'relative'
         }}
       >
         <RichText parts={turn.text} />
+        {rewind && turn.parentUuid && (
+          <button
+            className="turn-rewind"
+            onClick={() => rewind({ parentUuid: turn.parentUuid ?? '', text: richToText(turn.text) })}
+            title="Edit this message and continue from here in a new branch"
+            style={{ position: 'absolute', left: -34, top: 6, display: 'flex', padding: 4, borderRadius: 6, cursor: 'pointer' }}
+          >
+            <Icon name="edit_note" size={18} color="var(--tx3)" />
+          </button>
+        )}
       </div>
     )
   if (turn.kind === 'ask')
@@ -1318,11 +1373,11 @@ function EmptyPanel({ text }: { text: string }) {
 
 type LiveProps = {
   live?: LiveSession
-  onSend?: (text: string, opts?: { model?: string; effort?: string; mode?: RunnerMode; images?: ImageInput[] }) => Promise<void>
+  onSend?: (text: string, opts?: { model?: string; effort?: string; mode?: RunnerMode; images?: ImageInput[]; rewindAt?: string }) => Promise<void>
   onMode?: (mode: RunnerMode) => Promise<void>
   permissionMode?: RunnerMode
   onStop?: () => void
-  onRespond?: (requestId: string, decision: AskDecision) => void
+  onRespond?: (requestId: string, decision: AskDecision, answers?: Record<string, string>) => void
   onRevert?: (path: string) => Promise<string>
   onSavePlan?: (body: string) => Promise<void>
   onAddToJira?: (body: string) => Promise<string>
@@ -1333,6 +1388,9 @@ type LiveProps = {
   effortOptions?: string[]
   defaultEffort?: string
   defaultMode?: RunnerMode
+  cwd?: string
+  onLoadEarlier?: () => void
+  partial?: string
 }
 
 const LIVE_STATUS: Record<LiveState, SessionStatus> = {
@@ -1362,6 +1420,9 @@ function Detail({
   effortOptions,
   defaultEffort,
   defaultMode,
+  cwd,
+  onLoadEarlier,
+  partial,
   onMode,
   permissionMode
 }: { data: DetailView; onBack: () => void } & LiveProps) {
@@ -1391,8 +1452,10 @@ function Detail({
   useEffect(() => {
     setOutbox((o) => o.filter((m) => Date.now() - m.id < 600_000 && sentTexts.filter((x) => sameMessage(x, m.text)).length <= m.before))
   }, [sentTexts])
-  const slash = useSlashCommands(text, setText, 'above')
+  const slash = useSlashCommands(text, setText, 'above', live?.cwd ?? cwd)
+  const mention = useFileMentions(text, setText, 'above', live?.cwd ?? cwd)
   const pasted = usePastedImages()
+  const recall = useRef<{ index: number; draft: string } | null>(null)
   const [model, setModel] = useState(data.model)
   const [thinking, setThinking] = useState(defaultEffort ?? data.thinking)
   const [mode, setMode] = useState<RunnerMode>(permissionMode ?? defaultMode ?? 'default')
@@ -1536,10 +1599,47 @@ function Detail({
     console.log('stop')
     setRunning(false)
   }
+  const sessionCwd = live?.cwd ?? cwd
+  const [rewindTo, setRewindTo] = useState<RewindTarget | null>(null)
+  const startRewind = useCallback((t: RewindTarget) => {
+    setRewindTo(t)
+    setText(t.text)
+  }, [])
+  const [shell, setShell] = useState<{ command: string; code: number | null; output: string; truncated: boolean } | 'running' | null>(null)
+  const [memoryNote, setMemoryNote] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+  const runBang = (command: string) => {
+    if (!sessionCwd || !window.kokpit) return
+    setShell('running')
+    setText('')
+    window.kokpit
+      .runShell(sessionCwd, command)
+      .then((r) => alive.current && setShell(r))
+      .catch((err: unknown) => {
+        if (!alive.current) return
+        setShell(null)
+        setSendError(err instanceof Error ? err.message : String(err))
+      })
+  }
+  const saveMemory = (target: 'project' | 'user') => {
+    const note = memoryNote
+    if (!note || !sessionCwd || !window.kokpit) return
+    setMemoryNote(null)
+    window.kokpit
+      .appendMemory(target, sessionCwd, note)
+      .then((file) => alive.current && setNotice(`Saved to ${file}`))
+      .catch((err: unknown) => alive.current && setSendError(err instanceof Error ? err.message : String(err)))
+  }
   const send = () => {
     const typed = text.trim()
     const images = pasted.payload()
     if (!typed && !images.length) return
+    if (sessionCwd && !images.length && typed.startsWith('!') && typed.slice(1).trim()) return runBang(typed.slice(1).trim())
+    if (sessionCwd && !images.length && typed.startsWith('#') && typed.slice(1).trim()) {
+      setMemoryNote(typed.slice(1).trim())
+      setText('')
+      return
+    }
     const t = withImageMarkers(typed, images.length)
     if (!onSend) {
       console.log(running ? 'queue message' : 'send message', { text: t, model, thinking })
@@ -1556,9 +1656,12 @@ function Detail({
     setOutbox((o) => [...o, { id, text: t, before: countSent(t) }])
     setText('')
     pasted.clear()
+    const rewindAt = rewindTo?.parentUuid
+    setRewindTo(null)
     onSend(t, {
       ...(modelOptions ? { model: modelId, effort: thinking.toLowerCase(), mode } : {}),
-      ...(images.length ? { images } : {})
+      ...(images.length ? { images } : {}),
+      ...(rewindAt ? { rewindAt } : {})
     })
       .catch((err: unknown) => {
         if (!alive.current) return
@@ -1731,7 +1834,7 @@ function Detail({
   useEffect(() => {
     const el = scrollRef.current
     if (el && stick.current) el.scrollTop = el.scrollHeight
-  }, [data.turns, live?.pending])
+  }, [data.turns, live?.pending, partial])
 
   return (
     <main style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', background: 'var(--bg)', color: 'var(--tx)' }}>
@@ -1795,9 +1898,17 @@ function Detail({
         <section style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
           <div ref={scrollRef} style={{ flex: 1, minHeight: 0, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
             <div style={{ marginTop: 'auto', padding: '20px 32px 12px', display: 'flex', flexDirection: 'column', gap: 20 }}>
-              {data.turns.map((t, i) => (
-                <TurnView key={i} turn={t} />
-              ))}
+              <RewindOpen.Provider value={onSend && sessionCwd && !running ? startRewind : null}>
+                {data.turns.map((t, i) => (
+                  <TurnView key={i} turn={t} onLoadEarlier={onLoadEarlier} />
+                ))}
+              </RewindOpen.Provider>
+              {running && partial && !lastClaudeText(data.turns).includes(partial.trim().slice(-120)) && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flexShrink: 0 }} aria-live="polite">
+                  <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--tx2)' }}>Claude</div>
+                  <Markdown source={partial} size={13.5} />
+                </div>
+              )}
               {outbox.map((m) => (
                 <TurnView key={`out-${m.id}`} turn={{ kind: 'user', text: toRich(m.text) }} />
               ))}
@@ -1810,7 +1921,15 @@ function Detail({
                   })()}
                 />
               )}
-              {live?.pending.map((p, i) => (
+              {live?.pending.map((p, i) =>
+                p.toolName === 'AskUserQuestion' ? (
+                  <QuestionCard
+                    key={p.requestId}
+                    input={p.input}
+                    onSubmit={(answers) => onRespond?.(p.requestId, 'allow', answers)}
+                    onDismiss={() => onRespond?.(p.requestId, 'deny')}
+                  />
+                ) : (
                 <ApprovalCard
                   key={p.requestId}
                   shortcuts={i === 0}
@@ -1826,10 +1945,82 @@ function Detail({
                   onDeny={() => onRespond?.(p.requestId, 'deny')}
                   onAlwaysAllow={p.canAlwaysAllow ? () => onRespond?.(p.requestId, 'always') : undefined}
                 />
-              ))}
+                )
+              )}
             </div>
           </div>
           <div style={{ padding: '0 24px 18px', flexShrink: 0 }}>
+            {rewindTo && (
+              <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', border: '1px solid var(--line)', borderRadius: 10, background: 'var(--wait-bg)', fontSize: 12.5 }}>
+                <Icon name="edit_note" size={16} color="var(--wait-tx)" />
+                <span style={{ flex: 1, color: 'var(--wait-tx)' }}>
+                  Editing an earlier message. Sending starts a new branch from that point, this session stays as it is. Files are not restored.
+                </span>
+                <button
+                  onClick={() => {
+                    setRewindTo(null)
+                    setText('')
+                  }}
+                  style={{ fontSize: 12, fontWeight: 500, padding: '2px 8px', borderRadius: 6, border: '1px solid var(--line)', cursor: 'pointer' }}
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+            {shell && (
+              <div style={{ marginBottom: 8, border: '1px solid var(--line)', borderRadius: 10, background: 'var(--panel)', overflow: 'hidden' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderBottom: '1px solid var(--line-soft)', fontSize: 12.5 }}>
+                  <Icon name="terminal" size={16} color="var(--tx3)" />
+                  <span style={{ font: `12.5px ${MONO}`, color: 'var(--tx)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1, minWidth: 0 }}>
+                    $ {shell === 'running' ? '…' : shell.command}
+                  </span>
+                  {shell === 'running' ? (
+                    <Spinner size={11} />
+                  ) : (
+                    <>
+                      <span style={{ color: shell.code === 0 ? 'var(--ok)' : 'var(--err)' }}>exit {shell.code ?? '?'}</span>
+                      <button
+                        onClick={() => {
+                          setText((cur) => `${cur ? `${cur}\n\n` : ''}\`\`\`\n$ ${shell.command}\n${shell.output.trimEnd()}\n\`\`\`\n`)
+                          setShell(null)
+                        }}
+                        style={{ fontSize: 12, fontWeight: 500, padding: '2px 8px', borderRadius: 6, border: '1px solid var(--line)', cursor: 'pointer' }}
+                      >
+                        Add to message
+                      </button>
+                      <button aria-label="Dismiss" onClick={() => setShell(null)} style={{ display: 'flex', cursor: 'pointer' }}>
+                        <Icon name="close" size={16} color="var(--tx3)" />
+                      </button>
+                    </>
+                  )}
+                </div>
+                {shell !== 'running' && (
+                  <pre className="selectable" style={{ margin: 0, padding: '8px 12px', maxHeight: 220, overflow: 'auto', font: `12px/1.55 ${MONO}`, color: 'var(--tx2)', whiteSpace: 'pre-wrap' }}>
+                    {(shell.truncated ? '…\n' : '') + (shell.output.trimEnd() || '(no output)')}
+                  </pre>
+                )}
+              </div>
+            )}
+            {memoryNote && (
+              <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', border: '1px solid var(--line)', borderRadius: 10, fontSize: 12.5 }}>
+                <Icon name="bookmark_add" size={16} color="var(--tx3)" />
+                <span style={{ flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Remember: {memoryNote}</span>
+                <button onClick={() => saveMemory('project')} style={{ fontSize: 12, fontWeight: 500, padding: '2px 8px', borderRadius: 6, border: '1px solid var(--line)', cursor: 'pointer' }}>
+                  Project CLAUDE.md
+                </button>
+                <button onClick={() => saveMemory('user')} style={{ fontSize: 12, fontWeight: 500, padding: '2px 8px', borderRadius: 6, border: '1px solid var(--line)', cursor: 'pointer' }}>
+                  User CLAUDE.md
+                </button>
+                <button aria-label="Cancel" onClick={() => setMemoryNote(null)} style={{ display: 'flex', cursor: 'pointer' }}>
+                  <Icon name="close" size={16} color="var(--tx3)" />
+                </button>
+              </div>
+            )}
+            {notice && (
+              <div role="status" style={{ padding: '0 4px 6px', fontSize: 12, color: 'var(--ok)' }} onClick={() => setNotice(null)}>
+                {notice}
+              </div>
+            )}
             {errorLine && (
               <div className="selectable" style={{ padding: '0 4px 6px', fontSize: 12, lineHeight: 1.5, color: 'var(--err)' }}>
                 {errorLine}
@@ -1848,15 +2039,41 @@ function Detail({
               {pasted.tray}
               <div style={{ padding: '12px 14px 4px', minHeight: 40, display: 'flex', position: 'relative' }}>
                 {slash.menu}
+                {mention.menu}
                 <textarea
                   className="bare"
                   value={text}
                   onPaste={pasted.onPaste}
                   placeholder={data.placeholder}
                   rows={Math.min(8, text.split('\n').length)}
-                  onChange={(e) => setText(e.target.value)}
+                  onChange={(e) => {
+                    recall.current = null
+                    setText(e.target.value)
+                  }}
                   onKeyDown={(e) => {
-                    if (slash.onKeyDown(e)) return
+                    if (slash.onKeyDown(e) || mention.onKeyDown(e)) return
+                    const history = [...sentTexts, ...outbox.map((m) => m.text)].filter((t, i, all) => t.trim() && t !== all[i - 1])
+                    const el = e.currentTarget
+                    if (e.key === 'ArrowUp' && !e.shiftKey && !e.metaKey && history.length && !el.value.slice(0, el.selectionStart).includes('\n')) {
+                      e.preventDefault()
+                      const cur = recall.current
+                      const index = cur ? Math.max(0, cur.index - 1) : history.length - 1
+                      recall.current = { index, draft: cur ? cur.draft : text }
+                      setText(history[index] ?? '')
+                      return
+                    }
+                    if (e.key === 'ArrowDown' && !e.shiftKey && !e.metaKey && recall.current && !el.value.slice(el.selectionEnd).includes('\n')) {
+                      e.preventDefault()
+                      const index = recall.current.index + 1
+                      if (index >= history.length) {
+                        setText(recall.current.draft)
+                        recall.current = null
+                      } else {
+                        recall.current = { ...recall.current, index }
+                        setText(history[index] ?? '')
+                      }
+                      return
+                    }
                     if (e.key === 'Tab' && e.shiftKey && modelOptions) {
                       e.preventDefault()
                       pickMode(MODES[(MODES.indexOf(mode) + 1) % MODES.length] ?? 'default')
@@ -1907,7 +2124,7 @@ function Detail({
                   />
                 )}
                 <span style={{ flex: 1 }} />
-                <span style={{ fontSize: 11.5, color: 'var(--tx3)' }}>{running ? 'Esc to interrupt' : '↵ send · ⇧↵ new line · ⇧⇥ mode'}</span>
+                <span style={{ fontSize: 11.5, color: 'var(--tx3)' }}>{sessionCwd && text.startsWith('!') ? '↵ run in the session folder' : sessionCwd && text.startsWith('#') ? '↵ save to memory' : running ? 'Esc to interrupt' : '↵ send · ⇧↵ new line · ⇧⇥ mode'}</span>
                 {running ? (
                   <button
                     onClick={stop}

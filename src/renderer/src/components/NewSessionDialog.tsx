@@ -5,6 +5,7 @@ import { MODE_LABELS, MODES, type RunnerEffort, type RunnerMode } from '@shared/
 import { libraryApi } from '@/data/libraryApi'
 import { useRunner } from '@/data/useRunner'
 import { useSlashCommands } from './SlashCommands'
+import { useFileMentions } from './FileMentions'
 import { usePastedImages, withImageMarkers } from './PastedImages'
 import { Icon, Kbd, PrimaryButton } from './primitives'
 
@@ -59,7 +60,8 @@ export function NewSessionDialog({
   const [repo, setRepo] = useState(OTHER)
   const [path, setPath] = useState('')
   const [prompt, setPrompt] = useState(jiraKey ? `Work on ${jiraKey}: ` : '')
-  const slash = useSlashCommands(prompt, setPrompt, 'below')
+  const slash = useSlashCommands(prompt, setPrompt, 'below', repo === OTHER ? undefined : repo)
+  const mention = useFileMentions(prompt, setPrompt, 'below', repo === OTHER ? undefined : repo)
   const pasted = usePastedImages()
   const [title, setTitle] = useState(jiraKey ? `${jiraKey} ` : '')
   const [model, setModel] = useState(defaultModel)
@@ -288,6 +290,7 @@ export function NewSessionDialog({
             <div style={{ position: 'relative' }}>
               {pasted.tray && <div style={{ marginBottom: 8 }}>{pasted.tray}</div>}
               {slash.menu}
+              {mention.menu}
               <textarea
                 ref={promptRef}
                 autoFocus
@@ -299,7 +302,7 @@ export function NewSessionDialog({
                 onBlur={() => setFocus(null)}
                 onPaste={pasted.onPaste}
                 onKeyDown={(e) => {
-                  slash.onKeyDown(e)
+                  if (!slash.onKeyDown(e)) mention.onKeyDown(e)
                 }}
                 onChange={(e) => {
                   setError(null)

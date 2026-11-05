@@ -87,9 +87,12 @@ export function App() {
   const effectiveId = openId ? (runner.sessionIdFor(openId) ?? openId) : null
   const openItem = items.find((i) => i.id === effectiveId)
   const live = effectiveId ? runner.live.get(effectiveId) : undefined
+  const [turnLimit, setTurnLimit] = useState({ id: '', n: 60 })
+  const maxTurns = turnLimit.id === effectiveId ? turnLimit.n : 60
   const detail = useSessionDetail(
     page === 'session' ? effectiveId : null,
-    `${openItem?.lastAt ?? ''}:${openItem?.status ?? ''}:${openItem?.title ?? ''}:${live?.state ?? ''}:${live?.pending.length ?? 0}`
+    `${openItem?.lastAt ?? ''}:${openItem?.status ?? ''}:${openItem?.title ?? ''}:${live?.state ?? ''}:${live?.pending.length ?? 0}`,
+    maxTurns
   )
 
 
@@ -223,7 +226,7 @@ export function App() {
           onOpen={open}
           onAllow={(id) => {
             const ask = runner.live.get(id)?.pending[0]
-            if (ask) void runner.respond(id, ask.requestId, 'allow')
+            if (ask && ask.toolName !== 'AskUserQuestion') void runner.respond(id, ask.requestId, 'allow')
             else open(id)
           }}
           onNew={() => setNewSession({})}
@@ -241,7 +244,7 @@ export function App() {
           onOpen={open}
           onAllow={(id) => {
             const ask = runner.live.get(id)?.pending[0]
-            if (ask) void runner.respond(id, ask.requestId, 'allow')
+            if (ask && ask.toolName !== 'AskUserQuestion') void runner.respond(id, ask.requestId, 'allow')
             else open(id)
           }}
           onArchive={archive}
@@ -322,7 +325,20 @@ export function App() {
             live={live}
             onBack={() => setPage('sessions')}
             onSend={async (text, opts) => {
-              if (runner.live.has(id) || live) await runner.send(live?.sessionId ?? id, text, opts?.images)
+              if (opts?.rewindAt) {
+                const tempId = await runner.start({
+                  cwd: openItem?.cwd ?? live?.cwd ?? '',
+                  prompt: text,
+                  images: opts.images,
+                  resumeId: live?.sessionId ?? id,
+                  resumeAt: opts.rewindAt,
+                  model: opts.model ?? settings?.defaultModel,
+                  effort: (EFFORT_CHOICES as string[]).includes(opts.effort ?? '') ? (opts.effort as KokpitSettings['defaultEffort']) : settings?.defaultEffort,
+                  mode: opts.mode ?? settings?.defaultMode
+                })
+                open(tempId)
+              } else if (runner.live.has(id) || live)
+                await runner.send(live?.sessionId ?? id, text, opts?.images, { model: opts?.model, effort: opts?.effort as KokpitSettings['defaultEffort'] | undefined })
               else
                 await runner.start({
                   cwd: openItem?.cwd ?? '',
@@ -342,6 +358,9 @@ export function App() {
             effortOptions={EFFORT_CHOICES}
             defaultEffort={settings?.defaultEffort}
             defaultMode={settings?.defaultMode}
+            cwd={openItem?.cwd}
+            partial={live ? runner.partial.get(live.sessionId) : undefined}
+            onLoadEarlier={() => setTurnLimit({ id: effectiveId ?? '', n: maxTurns + 100 })}
             onAttach={() => window.kokpit?.pickFiles() ?? Promise.resolve([])}
             onRename={detail.data ? (title) => window.kokpit?.renameSession(id, title) ?? Promise.resolve() : undefined}
             onDelete={
@@ -362,7 +381,7 @@ export function App() {
               return window.kokpit?.integrations.addJiraComment(key, body) ?? Promise.reject(new Error('Not available'))
             }}
             onStop={() => void runner.interrupt(id)}
-            onRespond={(requestId, decision) => void runner.respond(id, requestId, decision)}
+            onRespond={(requestId, decision, answers) => void runner.respond(id, requestId, decision, undefined, answers)}
             onRevert={(path) => window.kokpit?.revertFile(id, path) ?? Promise.reject(new Error('Not available'))}
           />
         )

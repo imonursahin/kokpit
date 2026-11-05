@@ -24,7 +24,7 @@ test('a claude turn keeps text and tool steps in the order they happened', async
     file,
     [
       JSON.stringify({ type: 'user', timestamp: '2026-01-01T10:00:00Z', message: { content: 'fix it' } }),
-      a([{ type: 'text', text: 'Looking first.' }], '2026-01-01T10:00:01Z'),
+      a([{ type: 'thinking', thinking: 'Where is the bug?' }, { type: 'text', text: 'Looking first.' }], '2026-01-01T10:00:01Z'),
       a([{ type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'ls' } }], '2026-01-01T10:00:02Z'),
       a([{ type: 'tool_use', id: 't2', name: 'Read', input: { file_path: '/r/a.ts' } }], '2026-01-01T10:00:03Z'),
       a([{ type: 'text', text: 'Found it.' }], '2026-01-01T10:00:04Z'),
@@ -34,7 +34,8 @@ test('a claude turn keeps text and tool steps in the order they happened', async
   const item = { id: 's', file, title: 't', cwd: dir, repo: 'r', branch: 'main', jira: '', prNumber: null, prUrl: '', startedAt: '2026-01-01T10:00:00Z', lastAt: '2026-01-01T10:00:05Z', costUsd: 0, costComplete: true, model: '', mode: '', status: 'done', sub: '', headless: false } as const
   const detail = await buildDetail({ ...item })
   const claude = detail.turns.find((t) => t.kind === 'claude')
-  expect(claude?.kind === 'claude' && claude.parts?.map((p) => (p.kind === 'text' ? `text:${p.text}` : `steps:${p.steps.length}`))).toEqual([
+  expect(claude?.kind === 'claude' && claude.parts?.map((p) => (p.kind === 'steps' ? `steps:${p.steps.length}` : `${p.kind}:${p.text}`))).toEqual([
+    'thinking:Where is the bug?',
     'text:Looking first.',
     'steps:2',
     'text:Found it.\n\nDone.'
@@ -128,4 +129,72 @@ test('a subagent step links to its own transcript and shows its background repor
   expect(agent.agent).toMatchObject({ type: 'Explore', description: 'Audit the code', finished: true })
   expect(agent.turns.map((t) => (t.kind === 'user' ? `user:${t.text}` : 'claude'))).toEqual(['user:Audit the code in src/', 'claude'])
   await expect(buildSubagentDetail({ ...item }, '../../etc')).rejects.toThrow('invalid agent id')
+})
+
+test('compaction shows as one divider, not as a long user message', async () => {
+  const { mkdtempSync, writeFileSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const { buildDetail } = await import('./detail')
+  const dir = mkdtempSync(join(tmpdir(), 'kokpit-detail-'))
+  const file = join(dir, 's.jsonl')
+  writeFileSync(
+    file,
+    [
+      JSON.stringify({ type: 'user', timestamp: '2026-01-01T10:00:00Z', message: { content: 'fix it' } }),
+      JSON.stringify({ type: 'assistant', timestamp: '2026-01-01T10:00:01Z', message: { id: 'a', model: 'claude-opus-5-5', content: [{ type: 'text', text: 'Done.' }] } }),
+      JSON.stringify({ type: 'system', subtype: 'compact_boundary', content: 'Conversation compacted', timestamp: '2026-01-01T10:10:00Z' }),
+      JSON.stringify({ type: 'user', isCompactSummary: true, timestamp: '2026-01-01T10:10:01Z', message: { content: 'This session is being continued... long summary' } }),
+      JSON.stringify({ type: 'user', timestamp: '2026-01-01T10:11:00Z', message: { content: 'next' } })
+    ].join('\n')
+  )
+  const item = { id: 's', file, title: 't', cwd: dir, repo: 'r', branch: 'main', jira: '', prNumber: null, prUrl: '', startedAt: '2026-01-01T10:00:00Z', lastAt: '2026-01-01T10:11:00Z', costUsd: 0, costComplete: true, model: '', mode: '', status: 'done', sub: '', headless: false } as const
+  const detail = await buildDetail({ ...item })
+  expect(detail.turns.map((t) => (t.kind === 'claude' ? 'claude' : `${t.kind}:${t.text}`))).toEqual(['user:fix it', 'claude', 'note:Conversation compacted', 'user:next'])
+})
+
+test('a todo update shows progress and the checklist', async () => {
+  const { todoStep } = await import('./detail')
+  const step = todoStep({
+    todos: [
+      { content: 'Read the code', status: 'completed', activeForm: 'Reading the code' },
+      { content: 'Fix the bug', status: 'in_progress', activeForm: 'Fixing the bug' },
+      { content: 'Write a test', status: 'pending', activeForm: 'Writing a test' }
+    ]
+  })
+  expect(step.target).toBe('1/3 done · Fixing the bug')
+  expect(step.output).toBe('[x] Read the code\n[>] Fix the bug\n[ ] Write a test')
+})
+
+test('hook errors and messages show as steps, session start notes stay hidden', async () => {
+  const { hookStep } = await import('./detail')
+  expect(hookStep({ type: 'hook_blocking_error', hookName: 'Stop', hookEvent: 'Stop', blockingError: { blockingError: 'push-gate: report drafted\nmore' } })).toMatchObject({
+    label: 'Hook · Stop',
+    target: 'push-gate: report drafted',
+    state: 'error'
+  })
+  expect(hookStep({ type: 'hook_system_message', hookName: 'SessionStart:startup', hookEvent: 'SessionStart', content: 'up to date' })).toBeNull()
+  expect(hookStep({ type: 'hook_system_message', hookName: 'PostToolUse', hookEvent: 'PostToolUse', content: 'formatted 2 files' })?.state).toBe('done')
+  expect(hookStep({ type: 'queued_command', prompt: 'x' })).toBeNull()
+})
+
+test('a background command stays running until its task notification arrives', async () => {
+  const { mkdtempSync, writeFileSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const { buildDetail } = await import('./detail')
+  const dir = mkdtempSync(join(tmpdir(), 'kokpit-detail-'))
+  const file = join(dir, 's.jsonl')
+  const lines = [
+    JSON.stringify({ type: 'user', timestamp: '2026-01-01T10:00:00Z', message: { content: 'build it' } }),
+    JSON.stringify({ type: 'assistant', timestamp: '2026-01-01T10:00:01Z', message: { id: 'a', model: 'claude-opus-5-5', content: [{ type: 'tool_use', id: 'b1', name: 'Bash', input: { command: 'npm run dist', run_in_background: true } }] } }),
+    JSON.stringify({ type: 'user', timestamp: '2026-01-01T10:00:02Z', message: { content: [{ type: 'tool_result', tool_use_id: 'b1', content: 'Command running in background with ID: x1' }] } })
+  ]
+  const item = { id: 's', file, title: 't', cwd: dir, repo: 'r', branch: 'main', jira: '', prNumber: null, prUrl: '', startedAt: '2026-01-01T10:00:00Z', lastAt: '2026-01-01T10:00:02Z', costUsd: 0, costComplete: true, model: '', mode: '', status: 'running', sub: '', headless: false } as const
+  const stepOf = async () => (await buildDetail({ ...item })).turns.flatMap((t) => (t.kind === 'claude' ? t.steps : []))[0]
+  writeFileSync(file, lines.join('\n'))
+  expect(await stepOf()).toMatchObject({ state: 'running', meta: 'in background' })
+  const note = '<task-notification>\n<task-id>x1</task-id>\n<tool-use-id>b1</tool-use-id>\n<status>completed</status>\n<summary>done</summary>\n</task-notification>'
+  writeFileSync(file, [...lines, JSON.stringify({ type: 'attachment', timestamp: '2026-01-01T10:05:00Z', attachment: { type: 'queued_command', prompt: note } })].join('\n'))
+  expect(await stepOf()).toMatchObject({ state: 'done', meta: 'finished in background' })
 })

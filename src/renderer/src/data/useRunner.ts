@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { AskDecision, ImageInput, LiveSession, RunnerMode, StartSession } from '@shared/runner'
+import type { AskDecision, ImageInput, LiveSession, RunnerMode, StartSession, TurnSettings } from '@shared/runner'
 
 export type Runner = {
   live: Map<string, LiveSession>
+  partial: Map<string, string>
   start: (req: StartSession) => Promise<string>
-  send: (sessionId: string, text: string, images?: ImageInput[]) => Promise<void>
-  respond: (sessionId: string, requestId: string, decision: AskDecision, note?: string) => Promise<void>
+  send: (sessionId: string, text: string, images?: ImageInput[], settings?: TurnSettings) => Promise<void>
+  respond: (sessionId: string, requestId: string, decision: AskDecision, note?: string, answers?: Record<string, string>) => Promise<void>
   interrupt: (sessionId: string) => Promise<void>
   setMode: (sessionId: string, mode: RunnerMode) => Promise<void>
   sessionIdFor: (tempId: string) => string | undefined
@@ -17,6 +18,7 @@ export function useRunner(): Runner {
   const api = window.kokpit?.runner
   const [live, setLive] = useState<Map<string, LiveSession>>(EMPTY)
   const [ids, setIds] = useState<Map<string, string>>(() => new Map())
+  const [partial, setPartial] = useState<Map<string, string>>(() => new Map())
   const rekeyed = useRef(new Set<string>())
 
   useEffect(() => {
@@ -24,7 +26,15 @@ export function useRunner(): Runner {
     let alive = true
     const off = api.onEvent((e) => {
       if (!alive) return
-      if (e.type === 'state') {
+      if (e.type === 'partial') {
+        setPartial((prev) => {
+          if ((prev.get(e.sessionId) ?? '') === e.text) return prev
+          const next = new Map(prev)
+          if (e.text) next.set(e.sessionId, e.text)
+          else next.delete(e.sessionId)
+          return next
+        })
+      } else if (e.type === 'state') {
         if (rekeyed.current.has(e.session.sessionId)) return
         setLive((prev) => new Map(prev).set(e.session.sessionId, e.session))
       } else if (e.type === 'started') {
@@ -69,10 +79,13 @@ export function useRunner(): Runner {
     },
     [api]
   )
-  const send = useCallback((id: string, text: string, images?: ImageInput[]) => (api ? api.send(id, text, images) : Promise.resolve()), [api])
+  const send = useCallback(
+    (id: string, text: string, images?: ImageInput[], settings?: TurnSettings) => (api ? api.send(id, text, images, settings) : Promise.resolve()),
+    [api]
+  )
   const respond = useCallback(
-    (id: string, requestId: string, decision: AskDecision, note?: string) =>
-      api ? api.respond(id, requestId, decision, note) : Promise.resolve(),
+    (id: string, requestId: string, decision: AskDecision, note?: string, answers?: Record<string, string>) =>
+      api ? api.respond(id, requestId, decision, note, answers) : Promise.resolve(),
     [api]
   )
   const interrupt = useCallback((id: string) => (api ? api.interrupt(id) : Promise.resolve()), [api])
@@ -82,5 +95,5 @@ export function useRunner(): Runner {
     [ids]
   )
 
-  return { live, start, send, respond, interrupt, setMode, sessionIdFor }
+  return { live, partial, start, send, respond, interrupt, setMode, sessionIdFor }
 }

@@ -9,7 +9,7 @@ import {
   type SDKMessage,
   type SDKUserMessage
 } from '@anthropic-ai/claude-agent-sdk'
-import { IMAGE_TYPES, isRunnerMode, type AskDecision, type ImageInput, type LiveSession, type PendingAsk, type RunnerEvent, type StartSession } from '../shared/runner'
+import { EFFORTS, IMAGE_TYPES, isRunnerMode, type AskDecision, type ImageInput, type LiveSession, type PendingAsk, type RunnerEvent, type SlashCommandInfo, type StartSession, type TurnSettings } from '../shared/runner'
 import { memoryDir } from './assistant'
 
 class InputQueue implements AsyncIterable<SDKUserMessage> {
@@ -70,6 +70,22 @@ export function imageInputs(input: unknown): ImageInput[] {
   })
 }
 
+export function turnSettings(input: unknown): TurnSettings {
+  const o = typeof input === 'object' && input !== null ? (input as Record<string, unknown>) : {}
+  const model = typeof o['model'] === 'string' && /^claude-[a-z0-9.-]+$/.test(o['model']) ? o['model'] : undefined
+  const effort = typeof o['effort'] === 'string' && (EFFORTS as string[]).includes(o['effort']) ? (o['effort'] as TurnSettings['effort']) : undefined
+  return { model, effort }
+}
+
+export function answerInputs(input: unknown): Record<string, string> | undefined {
+  if (input === undefined || input === null) return undefined
+  if (typeof input !== 'object' || Array.isArray(input)) throw new Error('invalid answers')
+  const entries = Object.entries(input as Record<string, unknown>)
+  if (!entries.length || entries.length > 4 || entries.some(([k, v]) => !k || typeof v !== 'string' || !v.trim() || v.length > 4000))
+    throw new Error('invalid answers')
+  return Object.fromEntries(entries) as Record<string, string>
+}
+
 type Pending = PendingAsk & { suggestions?: PermissionUpdate[]; resolve: (r: PermissionResult) => void }
 
 type Live = {
@@ -80,6 +96,9 @@ type Live = {
   q: Query
   pending: Map<string, Pending>
   interrupted?: boolean
+  effort?: string
+  partial?: string
+  partialTimer?: ReturnType<typeof setTimeout>
 }
 
 export function stateAfterResult(
@@ -106,6 +125,8 @@ function describe(toolName: string, input: Record<string, unknown>): { title: st
       return { title: 'Wants to fetch a page', detail: s('url') }
     case 'WebSearch':
       return { title: 'Wants to search the web', detail: s('query') }
+    case 'ExitPlanMode':
+      return { title: 'Wants to leave plan mode and start working', detail: s('plan').slice(0, 4000) }
     default:
       return {
         title: toolName.startsWith('mcp__') ? `Wants to call ${toolName.split('__').slice(1).join(' · ')}` : `Wants to use ${toolName}`,
@@ -114,8 +135,17 @@ function describe(toolName: string, input: Record<string, unknown>): { title: st
   }
 }
 
+const COMMANDS_TTL_MS = 10 * 60_000
+
+type StreamEvent = {
+  type: string
+  content_block?: { type: string }
+  delta?: { type: string; text?: string }
+}
+
 export class Runner {
   private live = new Map<string, Live>()
+  private commandCache = new Map<string, { at: number; list: Promise<SlashCommandInfo[]> }>()
   private alias = new Map<string, string>()
 
   private find(id: string): Live | undefined {
@@ -148,12 +178,13 @@ export class Runner {
     const hasPrompt = !!req.prompt.trim() || images.length > 0
     if (req.resumeId && !hasPrompt) throw new Error('Write a message first')
     if (req.mode !== undefined && !isRunnerMode(req.mode)) throw new Error('invalid mode')
-    if (req.resumeId && this.find(req.resumeId)) {
-      this.send(req.resumeId, req.prompt, images)
+    if (req.resumeAt !== undefined && (typeof req.resumeAt !== 'string' || !req.resumeId || !/^[0-9a-f-]{36}$/i.test(req.resumeAt))) throw new Error('invalid rewind point')
+    if (req.resumeId && !req.resumeAt && this.find(req.resumeId)) {
+      await this.send(req.resumeId, req.prompt, images, { model: req.model, effort: req.effort })
       return { tempId: req.resumeId }
     }
 
-    const tempId = req.resumeId ?? `pending-${randomUUID()}`
+    const tempId = req.resumeId && !req.resumeAt ? req.resumeId : `pending-${randomUUID()}`
     const input = new InputQueue()
     if (hasPrompt) input.push(req.prompt, images)
     const pending = new Map<string, Pending>()
@@ -178,7 +209,9 @@ export class Runner {
         model: req.model,
         effort: req.effort,
         resume: req.resumeId,
+        ...(req.resumeAt ? { forkSession: true, resumeSessionAt: req.resumeAt } : {}),
         settingSources: ['user', 'project', 'local'],
+        includePartialMessages: true,
         pathToClaudeCodeExecutable: this.executable(),
         plugins: kokpit ? [{ type: 'local', path: kokpit.home }] : undefined,
         // The autoMemoryDirectory setting is dropped for SDK-launched sessions; this undocumented override is what the CLI honors (checked on 2.1.318).
@@ -222,7 +255,7 @@ export class Runner {
     })
 
     const title = typeof req.title === 'string' ? req.title.trim().slice(0, 120) : ''
-    const l: Live = { key: tempId, pendingTitle: title, info, input, q, pending }
+    const l: Live = { key: tempId, pendingTitle: title, info, input, q, pending, effort: req.effort }
     liveRef = l
     this.live.set(tempId, l)
     this.publish(l)
@@ -266,6 +299,8 @@ export class Runner {
           }
           this.emit({ type: 'text', sessionId: l.key, text: msg.content })
           this.publish(l)
+        } else if (msg.type === 'stream_event') {
+          this.onStream(l, msg.event as unknown as StreamEvent)
         } else if (msg.type === 'assistant') {
           if (l.info.state !== 'waiting') l.info.state = 'running'
           for (const block of msg.message.content) {
@@ -273,6 +308,7 @@ export class Runner {
           }
           this.publish(l)
         } else if (msg.type === 'result') {
+          this.setPartial(l, '')
           void this.applyTitle(l)
           l.info.costUsd += msg.total_cost_usd
           const next = stateAfterResult(l.info.state, msg, !!l.interrupted)
@@ -294,6 +330,27 @@ export class Runner {
     }
   }
 
+  private onStream(l: Live, ev: StreamEvent): void {
+    if (ev.type === 'message_start') this.setPartial(l, '')
+    else if (ev.type === 'content_block_start' && ev.content_block?.type === 'text' && l.partial) this.setPartial(l, `${l.partial}\n\n`)
+    else if (ev.type === 'content_block_delta' && ev.delta?.type === 'text_delta' && ev.delta.text) this.setPartial(l, `${l.partial ?? ''}${ev.delta.text}`)
+  }
+
+  private setPartial(l: Live, text: string): void {
+    l.partial = text
+    if (!text) {
+      if (l.partialTimer) clearTimeout(l.partialTimer)
+      l.partialTimer = undefined
+      this.emit({ type: 'partial', sessionId: l.key, text: '' })
+      return
+    }
+    if (l.partialTimer) return
+    l.partialTimer = setTimeout(() => {
+      l.partialTimer = undefined
+      this.emit({ type: 'partial', sessionId: l.key, text: l.partial ?? '' })
+    }, 80)
+  }
+
   private async applyTitle(l: Live): Promise<void> {
     if (!l.pendingTitle || l.key.startsWith('pending-')) return
     const title = l.pendingTitle
@@ -306,14 +363,64 @@ export class Runner {
     }
   }
 
-  send(sessionId: unknown, text: unknown, images?: unknown): void {
+  async send(sessionId: unknown, text: unknown, images?: unknown, settings?: unknown): Promise<void> {
     const pics = imageInputs(images)
     if (typeof sessionId !== 'string' || typeof text !== 'string' || (!text.trim() && !pics.length)) throw new Error('invalid message')
     const l = this.find(sessionId)
     if (!l) throw new Error('This session is not running in Kokpit')
+    const s = turnSettings(settings)
+    if (s.model && s.model !== l.info.model) {
+      await l.q.setModel(s.model)
+      l.info.model = s.model
+    }
+    if (s.effort && s.effort !== l.effort) {
+      await l.q.applyFlagSettings({ effortLevel: s.effort })
+      l.effort = s.effort
+    }
     l.input.push(text, pics)
     l.info.state = 'running'
     this.publish(l)
+  }
+
+  commands(cwd: unknown): Promise<SlashCommandInfo[]> {
+    if (typeof cwd !== 'string' || !cwd.startsWith('/') || !existsSync(cwd)) return Promise.resolve([])
+    const hit = this.commandCache.get(cwd)
+    if (hit && Date.now() - hit.at < COMMANDS_TTL_MS) return hit.list
+    const list = this.loadCommands(cwd).catch((err: Error) => {
+      this.commandCache.delete(cwd)
+      this.log(`slash commands for ${cwd}: ${err.message}`)
+      return []
+    })
+    this.commandCache.set(cwd, { at: Date.now(), list })
+    return list
+  }
+
+  private async loadCommands(cwd: string): Promise<SlashCommandInfo[]> {
+    const live = [...this.live.values()].find((l) => l.info.cwd === cwd)
+    let q: Query | null = live?.q ?? null
+    const own = !q
+    if (!q) {
+      const kokpit = await this.assistant()
+      const idle: AsyncIterable<SDKUserMessage> = { [Symbol.asyncIterator]: () => ({ next: () => new Promise<IteratorResult<SDKUserMessage>>(() => {}) }) }
+      q = query({
+        prompt: idle,
+        options: {
+          cwd,
+          settingSources: ['user', 'project', 'local'],
+          pathToClaudeCodeExecutable: this.executable(),
+          plugins: kokpit ? [{ type: 'local', path: kokpit.home }] : undefined
+        }
+      })
+    }
+    try {
+      const timeout = new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timed out')), 20_000))
+      const raw = await Promise.race([q.supportedCommands(), timeout])
+      return raw
+        .map((c) => ({ name: c.name, description: c.description ?? '', argumentHint: c.argumentHint ?? '' }))
+        .sort((a, b) => a.name.localeCompare(b.name))
+    } finally {
+      if (own) q.close?.()
+    }
   }
 
   async setMode(sessionId: unknown, mode: unknown): Promise<void> {
@@ -325,7 +432,8 @@ export class Runner {
     this.publish(l)
   }
 
-  respond(sessionId: unknown, requestId: unknown, decision: unknown, note?: unknown): void {
+  respond(sessionId: unknown, requestId: unknown, decision: unknown, note?: unknown, answers?: unknown): void {
+    const picked = answerInputs(answers)
     if (typeof sessionId !== 'string' || typeof requestId !== 'string') throw new Error('invalid response')
     if (decision !== 'allow' && decision !== 'deny' && decision !== 'always') throw new Error('invalid decision')
     const l = this.find(sessionId)
@@ -336,7 +444,7 @@ export class Runner {
     if (d === 'deny') {
       p.resolve({ behavior: 'deny', message: typeof note === 'string' && note.trim() ? note : 'The user denied this action' })
     } else {
-      p.resolve({ behavior: 'allow', updatedInput: p.input, updatedPermissions: d === 'always' ? p.suggestions : undefined })
+      p.resolve({ behavior: 'allow', updatedInput: picked ? { ...p.input, answers: picked } : p.input, updatedPermissions: d === 'always' ? p.suggestions : undefined })
     }
     l.info.state = l.pending.size ? 'waiting' : 'running'
     this.publish(l)

@@ -20,6 +20,7 @@ export function toSummary(item: SessionIndexItem, nowMs: number): SessionSummary
     pr: item.prNumber ? `#${item.prNumber}` : '',
     prUrl: item.prUrl,
     time: relativeTime(item.lastAt, nowMs),
+    lastAt: item.lastAt,
     cost: `${item.costComplete ? '' : '≥'}$${item.costUsd.toFixed(2)}`
   }
 }

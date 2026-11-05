@@ -20,6 +20,7 @@ const MAX_PLAN = 200_000
 type Obj = Record<string, unknown>
 const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v)
 const str = (v: unknown): string => (typeof v === 'string' ? v : '')
+const chain = (o: Obj): { uuid?: string; parentUuid?: string } => ({ uuid: str(o['uuid']) || undefined, parentUuid: str(o['parentUuid']) || undefined })
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}\n…` : s)
 
 type ClaudeTurn = Extract<DetailTurn, { kind: 'claude' }>
@@ -27,6 +28,20 @@ type EditRecord = { path: string; oldText: string; newText: string; created: boo
 
 function rel(path: string, base: string): string {
   return base && path.startsWith(`${base}/`) ? path.slice(base.length + 1) : path
+}
+
+export function todoStep(input: Obj): DetailStep {
+  const todos = (Array.isArray(input['todos']) ? input['todos'] : []).filter(isObj)
+  const done = todos.filter((t) => t['status'] === 'completed').length
+  const active = todos.find((t) => t['status'] === 'in_progress')
+  const mark = (s: unknown) => (s === 'completed' ? '[x]' : s === 'in_progress' ? '[>]' : '[ ]')
+  return {
+    kind: 'todo',
+    label: 'Todos',
+    target: `${done}/${todos.length} done${active ? ` · ${str(active['activeForm']) || str(active['content'])}` : ''}`,
+    state: 'done',
+    output: todos.map((t) => `${mark(t['status'])} ${str(t['content'])}`).join('\n')
+  }
 }
 
 function stepFor(name: string, input: Obj, cwd: string): DetailStep {
@@ -69,6 +84,8 @@ function stepFor(name: string, input: Obj, cwd: string): DetailStep {
       return step('command', 'Agent', str(input['description']))
     case 'Skill':
       return step('read', 'Skill', str(input['skill']))
+    case 'TodoWrite':
+      return todoStep(input)
     default: {
       if (name.startsWith('mcp__')) {
         const parts = name.split('__')
@@ -186,6 +203,47 @@ async function subagentMetas(sessionFile: string, nowMs: number): Promise<AgentM
   return (await Promise.all(ids.map((id) => readAgentMeta(dir, id, nowMs)))).filter((m): m is AgentMeta => m !== null)
 }
 
+export function taskNotification(prompt: string): { toolUseId: string; status: string } | null {
+  const text = prompt.trim()
+  if (!text.startsWith('<task-notification>')) return null
+  const toolUseId = tag(text, 'tool-use-id')?.trim()
+  const status = tag(text, 'status')?.trim()
+  return toolUseId && status ? { toolUseId, status } : null
+}
+
+const HOOK_STATES: Record<string, DetailStep['state']> = {
+  hook_blocking_error: 'error',
+  hook_non_blocking_error: 'error',
+  hook_cancelled: 'error',
+  hook_system_message: 'done'
+}
+
+function firstText(v: unknown, depth = 0): string {
+  if (typeof v === 'string') return v
+  if (!isObj(v) || depth > 3) return ''
+  for (const key of ['blockingError', 'error', 'stderr', 'content', 'message']) {
+    const t = firstText(v[key], depth + 1)
+    if (t.trim()) return t
+  }
+  return ''
+}
+
+export function hookStep(att: Obj): DetailStep | null {
+  const state = HOOK_STATES[str(att['type'])]
+  if (!state) return null
+  const event = str(att['hookEvent'])
+  if (att['type'] === 'hook_system_message' && event === 'SessionStart') return null
+  const text = (att['type'] === 'hook_cancelled' ? firstText(att) || 'Hook was cancelled' : firstText(att)).trim()
+  if (!text) return null
+  return {
+    kind: 'command',
+    label: `Hook · ${str(att['hookName']) || event || 'hook'}`,
+    target: text.split('\n')[0]?.slice(0, 160) ?? '',
+    state,
+    output: clip(text, MAX_OUTPUT)
+  }
+}
+
 function formatDuration(ms: number): string {
   const s = Math.max(0, Math.round(ms / 1000))
   if (s < 60) return `${s}s`
@@ -261,7 +319,8 @@ function transcriptFiles(edits: EditRecord[], base: string): DetailFile[] {
 
 const PLAN_FILE = /(^|\/)([^/]*plan[^/]*\.md|plans\/[^/]+\.md)$/i
 
-export async function buildDetail(item: SessionIndexItem, nowMs = Date.now(), opts: { sidechain?: boolean } = {}): Promise<SessionDetailData> {
+export async function buildDetail(item: SessionIndexItem, nowMs = Date.now(), opts: { sidechain?: boolean; maxTurns?: number } = {}): Promise<SessionDetailData> {
+  const maxTurns = opts.maxTurns ?? MAX_TURNS
   const turns: DetailTurn[] = []
   const steps = new Map<string, DetailStep>()
   const seen = new Set<string>()
@@ -285,6 +344,7 @@ export async function buildDetail(item: SessionIndexItem, nowMs = Date.now(), op
 
   let lastUserAt = ''
   const reports = new Map<string, string>()
+  const background = new Set<string>()
   let lastContext = 0
   const rl = createInterface({ input: createReadStream(item.file, { encoding: 'utf8' }), crlfDelay: Infinity })
   for await (const raw of rl) {
@@ -300,6 +360,20 @@ export async function buildDetail(item: SessionIndexItem, nowMs = Date.now(), op
     const ts = str(o['timestamp'])
     const message = isObj(o['message']) ? o['message'] : {}
 
+    const compactNote = () => {
+      if (turns.at(-1)?.kind === 'note') return
+      closeTurn()
+      turns.push({ kind: 'note', text: 'Conversation compacted' })
+    }
+    if (type === 'system' && str(o['subtype']) === 'compact_boundary') {
+      compactNote()
+      continue
+    }
+    if (type === 'user' && o['isCompactSummary'] === true) {
+      compactNote()
+      continue
+    }
+
     if (type === 'user') {
       if (o['isMeta'] === true) continue
       const content = message['content']
@@ -312,6 +386,10 @@ export async function buildDetail(item: SessionIndexItem, nowMs = Date.now(), op
           const isError = b['is_error'] === true
           step.state = isError ? 'error' : 'done'
           step.meta = resultMeta(step, text, isError)
+          if (!isError && background.has(str(b['tool_use_id']))) {
+            step.state = 'running'
+            step.meta = 'in background'
+          }
           if (step.kind === 'command' || isError) step.output = clip(text, MAX_OUTPUT)
         }
       }
@@ -319,13 +397,13 @@ export async function buildDetail(item: SessionIndexItem, nowMs = Date.now(), op
       const command = commandPrompt(prompt)
       if (command) {
         closeTurn()
-        turns.push({ kind: 'user', text: clip(command, MAX_TEXT) })
+        turns.push({ kind: 'user', text: clip(command, MAX_TEXT), ...chain(o) })
         lastUserAt = ts
         continue
       }
       if (!isNoise(prompt) && o['toolUseResult'] === undefined) {
         closeTurn()
-        turns.push({ kind: 'user', text: clip(prompt, MAX_TEXT) })
+        turns.push({ kind: 'user', text: clip(prompt, MAX_TEXT), ...chain(o) })
         lastUserAt = ts
       }
       continue
@@ -333,6 +411,20 @@ export async function buildDetail(item: SessionIndexItem, nowMs = Date.now(), op
 
     if (type === 'attachment') {
       const att = isObj(o['attachment']) ? o['attachment'] : {}
+      const hook = hookStep(att)
+      if (hook) {
+        if (!current) {
+          current = { kind: 'claude', steps: [], meta: { model: shortModel(model), time: '', cost: '' } }
+          turns.push(current)
+          turnStart = ts
+        }
+        current.steps.push(hook)
+        const parts = (current.parts ??= [])
+        const last = parts[parts.length - 1]
+        if (last?.kind === 'steps') last.steps.push(hook)
+        else parts.push({ kind: 'steps', steps: [hook] })
+        continue
+      }
       if (str(att['type']) !== 'queued_command') continue
       const prompt = promptOf(att['prompt'])
       const report = agentReport(prompt)
@@ -340,11 +432,20 @@ export async function buildDetail(item: SessionIndexItem, nowMs = Date.now(), op
         reports.set(report.id, report.text)
         continue
       }
+      const done = taskNotification(prompt)
+      if (done) {
+        const step = steps.get(done.toolUseId)
+        if (step && background.has(done.toolUseId)) {
+          step.state = done.status === 'completed' ? 'done' : 'error'
+          step.meta = done.status === 'completed' ? 'finished in background' : done.status
+        }
+        continue
+      }
       if (att['humanTurn'] === false) continue
       const command = commandPrompt(prompt)
       if (!command && (isNoise(prompt) || prompt.trimStart().startsWith('<'))) continue
       closeTurn()
-      turns.push({ kind: 'user', text: clip(command || prompt, MAX_TEXT) })
+      turns.push({ kind: 'user', text: clip(command || prompt, MAX_TEXT), ...chain(o) })
       lastUserAt = ts
       continue
     }
@@ -387,12 +488,18 @@ export async function buildDetail(item: SessionIndexItem, nowMs = Date.now(), op
         const last = parts[parts.length - 1]
         if (last?.kind === 'text') last.text = clip(`${last.text}\n\n${str(b['text'])}`, MAX_TEXT)
         else parts.push({ kind: 'text', text: clip(str(b['text']), MAX_TEXT) })
+      } else if (b['type'] === 'thinking' && str(b['thinking']).trim()) {
+        const parts = (current.parts ??= [])
+        const last = parts[parts.length - 1]
+        if (last?.kind === 'thinking') last.text = clip(`${last.text}\n\n${str(b['thinking'])}`, MAX_TEXT)
+        else parts.push({ kind: 'thinking', text: clip(str(b['thinking']), MAX_TEXT) })
       } else if (b['type'] === 'tool_use') {
         const name = str(b['name'])
         const input = isObj(b['input']) ? b['input'] : {}
         const step = stepFor(name, input, item.cwd)
         step.state = 'running'
         steps.set(str(b['id']), step)
+        if (input['run_in_background'] === true) background.add(str(b['id']))
         current.steps.push(step)
         const parts = (current.parts ??= [])
         const last = parts[parts.length - 1]
@@ -466,7 +573,7 @@ export async function buildDetail(item: SessionIndexItem, nowMs = Date.now(), op
     }
   }
 
-  const earlierCount = Math.max(0, turns.length - MAX_TURNS)
+  const earlierCount = Math.max(0, turns.length - maxTurns)
   return {
     id: item.id,
     header: {
@@ -480,7 +587,7 @@ export async function buildDetail(item: SessionIndexItem, nowMs = Date.now(), op
       pr: item.prNumber ? { number: `#${item.prNumber}`, url: item.prUrl } : undefined,
       context: lastContext ? { used: lastContext, window: contextWindow(model, lastContext) } : undefined
     },
-    turns: turns.slice(-MAX_TURNS),
+    turns: turns.slice(-maxTurns),
     earlierCount,
     model: shortModel(model),
     running,

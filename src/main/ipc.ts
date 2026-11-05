@@ -31,6 +31,8 @@ import { buildDetail, buildSubagentDetail } from './sessions/detail'
 import { revertFile } from './sessions/revert'
 import { KokpitSessions } from './sessions/origin'
 import { readCliStatuses } from './sessions/live'
+import { listFiles, rankFiles } from './files'
+import { appendMemory, runShell } from './shell'
 import { PROJECTS_DIR, SessionStore } from './sessions/store'
 
 const log = (msg: string) => console.log(`[kokpit] ${msg}`)
@@ -167,11 +169,12 @@ export function registerIpc(
     if (!item) throw new Error(`session ${id} not found`)
     return buildSubagentDetail(item, agentId)
   })
-  ipcMain.handle('sessions:detail', async (_e, id: unknown) => {
+  ipcMain.handle('sessions:detail', async (_e, id: unknown, maxTurns: unknown) => {
     if (typeof id !== 'string') throw new Error('session id must be a string')
     const item = store.items().find((i) => i.id === id) ?? (await refresh()).find((i) => i.id === id)
     if (!item) throw new Error(`session ${id} not found`)
-    const detail = await buildDetail(item)
+    const limit = typeof maxTurns === 'number' && Number.isInteger(maxTurns) ? Math.min(5000, Math.max(20, maxTurns)) : undefined
+    const detail = await buildDetail(item, Date.now(), { maxTurns: limit })
     if (detail.plan?.path && existsSync(detail.plan.path)) planPaths.set(id, detail.plan.path)
     if (detail.filesRoot) revertable.set(id, { root: detail.filesRoot, paths: new Set(detail.files.map((f) => f.path)) })
     else revertable.delete(id)
@@ -427,11 +430,15 @@ export function registerIpc(
 
   ipcMain.handle('runner:list', () => runner.list())
   ipcMain.handle('runner:start', (_e, req: unknown) => runner.start(req as never))
-  ipcMain.handle('runner:send', (_e, id: unknown, text: unknown, images: unknown) => runner.send(id, text, images))
-  ipcMain.handle('runner:respond', (_e, id: unknown, requestId: unknown, decision: unknown, note: unknown) =>
-    runner.respond(id, requestId, decision, note)
+  ipcMain.handle('runner:send', (_e, id: unknown, text: unknown, images: unknown, settings: unknown) => runner.send(id, text, images, settings))
+  ipcMain.handle('runner:respond', (_e, id: unknown, requestId: unknown, decision: unknown, note: unknown, answers: unknown) =>
+    runner.respond(id, requestId, decision, note, answers)
   )
   ipcMain.handle('runner:interrupt', (_e, id: unknown) => runner.interrupt(id))
+  ipcMain.handle('runner:commands', (_e, cwd: unknown) => runner.commands(cwd))
+  ipcMain.handle('shell:run', (_e, cwd: unknown, command: unknown) => runShell(cwd, command))
+  ipcMain.handle('memory:append', (_e, target: unknown, cwd: unknown, note: unknown) => appendMemory(target, cwd, note))
+  ipcMain.handle('files:mention', async (_e, cwd: unknown, query: unknown) => rankFiles(await listFiles(cwd), typeof query === 'string' ? query.slice(0, 200) : ''))
   ipcMain.handle('runner:setMode', (_e, id: unknown, mode: unknown) => runner.setMode(id, mode))
 
   return () => {
@@ -446,7 +453,7 @@ export function registerIpc(
     watcher?.close()
     ipcMain.removeHandler('sessions:list')
     ipcMain.removeHandler('sessions:detail')
-    for (const ch of ['library:list', 'library:save', 'library:create', 'library:delete', 'search:query', 'runner:list', 'runner:start', 'runner:send', 'runner:respond', 'runner:interrupt', 'runner:setMode', 'integrations:status', 'integrations:connectJira', 'integrations:connectGithub', 'integrations:disconnect', 'jira:issues', 'jira:issue', 'github:prs', 'app:user', 'changes:revert', 'github:prsByUrl', 'settings:get', 'settings:update', 'app:info', 'app:openFolder', 'app:keepAwake', 'app:doctor', 'app:planUsage', 'tray:refreshUsage', 'app:testNotification', 'sessions:rebuild', 'dialog:pickFiles', 'plan:save', 'jira:comment', 'github:mine', 'github:counts', 'sessions:rename', 'sessions:delete', 'sessions:subagent', 'mcp:status', 'mcp:remove', 'mcp:logout', 'mcp:add', 'term:mcpLogin', 'term:update', 'update:get', 'update:check', 'app:relaunch', 'term:write', 'term:resize', 'term:kill'])
+    for (const ch of ['library:list', 'library:save', 'library:create', 'library:delete', 'search:query', 'runner:list', 'runner:start', 'runner:send', 'runner:respond', 'runner:interrupt', 'runner:commands', 'files:mention', 'shell:run', 'memory:append', 'runner:setMode', 'integrations:status', 'integrations:connectJira', 'integrations:connectGithub', 'integrations:disconnect', 'jira:issues', 'jira:issue', 'github:prs', 'app:user', 'changes:revert', 'github:prsByUrl', 'settings:get', 'settings:update', 'app:info', 'app:openFolder', 'app:keepAwake', 'app:doctor', 'app:planUsage', 'tray:refreshUsage', 'app:testNotification', 'sessions:rebuild', 'dialog:pickFiles', 'plan:save', 'jira:comment', 'github:mine', 'github:counts', 'sessions:rename', 'sessions:delete', 'sessions:subagent', 'mcp:status', 'mcp:remove', 'mcp:logout', 'mcp:add', 'term:mcpLogin', 'term:update', 'update:get', 'update:check', 'app:relaunch', 'term:write', 'term:resize', 'term:kill'])
       ipcMain.removeHandler(ch)
     if (awakeId !== null) powerSaveBlocker.stop(awakeId)
     runner.dispose()

@@ -69,3 +69,87 @@ test('pasted images go to Claude as image blocks before the text', async () => {
   expect(imageInputs(undefined)).toEqual([])
   runner.dispose()
 })
+
+test('answers reach Claude and model or effort changes apply to the running session', async () => {
+  const sdk = await import('@anthropic-ai/claude-agent-sdk')
+  type CanUse = (tool: string, input: Record<string, unknown>, o: { signal: AbortSignal; suggestions?: unknown[] }) => Promise<{ behavior: string; updatedInput?: Record<string, unknown> }>
+  let canUseTool: CanUse | undefined
+  const setModel = vi.fn(async () => {})
+  const applyFlagSettings = vi.fn(async () => {})
+  vi.mocked(sdk.query).mockImplementation(((args: { options: { canUseTool: CanUse } }) => {
+    canUseTool = args.options.canUseTool
+    return { setModel, applyFlagSettings, close: vi.fn(), async *[Symbol.asyncIterator]() { await new Promise(() => {}) } }
+  }) as never)
+  const { Runner, answerInputs } = await import('./runner')
+  const runner = new Runner(() => {})
+  const { tempId } = await runner.start({ cwd: process.cwd(), prompt: 'go', model: 'claude-opus-5-5', effort: 'high' })
+
+  const questions = [{ question: 'Which DB?', header: 'DB', options: [{ label: 'Postgres', description: '' }, { label: 'MySQL', description: '' }], multiSelect: false }]
+  const pending = canUseTool?.('AskUserQuestion', { questions }, { signal: new AbortController().signal })
+  const ask = runner.list()[0]?.pending[0]
+  expect(ask?.toolName).toBe('AskUserQuestion')
+  runner.respond(tempId, ask?.requestId, 'allow', undefined, { 'Which DB?': 'Postgres' })
+  expect(await pending).toMatchObject({ behavior: 'allow', updatedInput: { questions, answers: { 'Which DB?': 'Postgres' } } })
+  expect(() => answerInputs({ q: '' })).toThrow('invalid answers')
+
+  await runner.send(tempId, 'next', undefined, { model: 'claude-sonnet-5-5', effort: 'low' })
+  expect(setModel).toHaveBeenCalledWith('claude-sonnet-5-5')
+  expect(applyFlagSettings).toHaveBeenCalledWith({ effortLevel: 'low' })
+  await runner.send(tempId, 'again', undefined, { model: 'claude-sonnet-5-5', effort: 'low' })
+  expect(setModel).toHaveBeenCalledTimes(1)
+  expect(applyFlagSettings).toHaveBeenCalledTimes(1)
+  runner.dispose()
+})
+
+test('streamed text is sent as it arrives and cleared when the turn ends', async () => {
+  const sdk = await import('@anthropic-ai/claude-agent-sdk')
+  let wake: () => void = () => {}
+  const msgs: unknown[] = []
+  const feed = (m: unknown) => {
+    msgs.push(m)
+    wake()
+  }
+  vi.mocked(sdk.query).mockImplementation(((args: { options: { includePartialMessages?: boolean } }) => {
+    expect(args.options.includePartialMessages).toBe(true)
+    return {
+      close: vi.fn(),
+      async *[Symbol.asyncIterator]() {
+        while (true) {
+          if (msgs.length) yield msgs.shift()
+          else await new Promise<void>((r) => (wake = r))
+        }
+      }
+    }
+  }) as never)
+  const { Runner } = await import('./runner')
+  const partials: string[] = []
+  const runner = new Runner((e) => {
+    if (e.type === 'partial') partials.push(e.text)
+  })
+  const { tempId } = await runner.start({ cwd: process.cwd(), prompt: 'hi' })
+  const ev = (event: unknown) => feed({ type: 'stream_event', session_id: tempId, event })
+  ev({ type: 'message_start' })
+  ev({ type: 'content_block_delta', delta: { type: 'text_delta', text: 'Hello ' } })
+  ev({ type: 'content_block_delta', delta: { type: 'text_delta', text: 'world' } })
+  await vi.waitFor(() => expect(partials.at(-1)).toBe('Hello world'))
+  feed({ type: 'result', subtype: 'success', is_error: false, total_cost_usd: 0, session_id: tempId })
+  await vi.waitFor(() => expect(partials.at(-1)).toBe(''))
+  runner.dispose()
+})
+
+test('editing an earlier message forks the session at that point', async () => {
+  const sdk = await import('@anthropic-ai/claude-agent-sdk')
+  let options: Record<string, unknown> = {}
+  vi.mocked(sdk.query).mockImplementation(((args: { options: Record<string, unknown> }) => {
+    options = args.options
+    return { close: vi.fn(), async *[Symbol.asyncIterator]() {} }
+  }) as never)
+  const { Runner } = await import('./runner')
+  const runner = new Runner(() => {})
+  const at = '11111111-2222-3333-4444-555555555555'
+  const { tempId } = await runner.start({ cwd: process.cwd(), prompt: 'try again', resumeId: 'old-session', resumeAt: at })
+  expect(tempId.startsWith('pending-')).toBe(true)
+  expect(options).toMatchObject({ resume: 'old-session', forkSession: true, resumeSessionAt: at })
+  await expect(runner.start({ cwd: process.cwd(), prompt: 'x', resumeId: 'old-session', resumeAt: 'nope' })).rejects.toThrow('invalid rewind point')
+  runner.dispose()
+})

@@ -1,7 +1,7 @@
 import { createContext, useContext, useState } from 'react'
 import { Icon, Spinner } from './primitives'
 
-export type StepKind = 'read' | 'edit' | 'create' | 'command' | 'search' | 'fetch' | 'jira'
+export type StepKind = 'read' | 'edit' | 'create' | 'command' | 'search' | 'fetch' | 'jira' | 'todo'
 
 const ICONS: Record<StepKind, string> = {
   read: 'draft',
@@ -10,7 +10,8 @@ const ICONS: Record<StepKind, string> = {
   command: 'terminal',
   search: 'search',
   fetch: 'public',
-  jira: 'task_alt'
+  jira: 'task_alt',
+  todo: 'checklist'
 }
 
 export type Step = {

@@ -12,6 +12,7 @@ export type SessionSummary = {
   pr: string
   prUrl?: string
   time: string
+  lastAt?: string
   cost: string
   unread?: boolean
   pinned?: boolean

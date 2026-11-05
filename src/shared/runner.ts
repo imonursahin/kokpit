@@ -1,5 +1,11 @@
 export type RunnerEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
+export const EFFORTS: RunnerEffort[] = ['low', 'medium', 'high', 'xhigh', 'max']
+
+export type TurnSettings = { model?: string; effort?: RunnerEffort }
+
+export type SlashCommandInfo = { name: string; description: string; argumentHint: string }
+
 export type RunnerMode = 'default' | 'acceptEdits' | 'plan' | 'auto' | 'bypassPermissions'
 
 export const MODE_LABELS: Record<RunnerMode, string> = {
@@ -29,6 +35,7 @@ export type StartSession = {
   effort?: RunnerEffort
   mode?: RunnerMode
   resumeId?: string
+  resumeAt?: string
 }
 
 export type PendingAsk = {
@@ -63,3 +70,4 @@ export type RunnerEvent =
   | { type: 'state'; session: LiveSession }
   | { type: 'started'; tempId: string; sessionId: string }
   | { type: 'text'; sessionId: string; text: string }
+  | { type: 'partial'; sessionId: string; text: string }

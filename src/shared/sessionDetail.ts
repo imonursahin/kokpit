@@ -1,6 +1,6 @@
 import type { SessionStatus } from './types'
 
-export type DetailStepKind = 'read' | 'edit' | 'create' | 'command' | 'search' | 'fetch' | 'jira'
+export type DetailStepKind = 'read' | 'edit' | 'create' | 'command' | 'search' | 'fetch' | 'jira' | 'todo'
 
 export type DetailStep = {
   kind: DetailStepKind
@@ -15,10 +15,11 @@ export type DetailStep = {
 }
 
 export type DetailTurn =
-  | { kind: 'user'; text: string }
+  | { kind: 'user'; text: string; uuid?: string; parentUuid?: string }
+  | { kind: 'note'; text: string }
   | { kind: 'claude'; steps: DetailStep[]; text?: string; output?: string; parts?: DetailPart[]; meta?: { model: string; time: string; cost: string } }
 
-export type DetailPart = { kind: 'text'; text: string } | { kind: 'steps'; steps: DetailStep[] }
+export type DetailPart = { kind: 'text'; text: string } | { kind: 'thinking'; text: string } | { kind: 'steps'; steps: DetailStep[] }
 
 export type DetailDiffLine = { o: number | ''; n: number | ''; sign: '+' | '-' | ' ' | '@'; t: string }
 

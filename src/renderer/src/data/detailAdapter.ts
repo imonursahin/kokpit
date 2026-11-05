@@ -3,7 +3,6 @@ import { parse } from '@/components/Markdown'
 import { relativeTime } from '@/data/useSessions'
 import type { DetailView, Plan, PlanBlock, Rich, TextBlock, Turn } from '@/mock/sessionDetail'
 
-const MAX_TURNS = 60
 
 export function toRich(text: string): Rich {
   return text
@@ -25,11 +24,12 @@ export function toBlocks(text: string): TextBlock[] {
 }
 
 export function toTurns(turns: DetailTurn[], earlierCount: number): Turn[] {
-  const shown = turns.slice(-MAX_TURNS)
-  const earlier = earlierCount + turns.length - shown.length
-  const out: Turn[] = earlier > 0 ? [{ kind: 'earlier', text: `${earlier} earlier turn${earlier === 1 ? '' : 's'}` }] : []
+  const shown = turns
+  const earlier = earlierCount
+  const out: Turn[] = earlier > 0 ? [{ kind: 'earlier', text: `${earlier} earlier turn${earlier === 1 ? '' : 's'}`, more: true }] : []
   shown.forEach((t, i) => {
-    if (t.kind === 'user') out.push({ kind: 'user', text: toRich(t.text) })
+    if (t.kind === 'user') out.push({ kind: 'user', text: toRich(t.text), uuid: t.uuid, parentUuid: t.parentUuid })
+    else if (t.kind === 'note') out.push({ kind: 'earlier', text: t.text })
     else
       out.push({
         kind: 'claude',

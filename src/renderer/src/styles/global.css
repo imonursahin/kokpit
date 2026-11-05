@@ -189,6 +189,10 @@ button {
 .title-edit-wrap:hover .title-edit,
 .title-edit:focus-visible { opacity: 1 }
 .title-edit:hover { background: var(--hover) }
+.turn-rewind { opacity: 0 }
+.turn-user:hover .turn-rewind,
+.turn-rewind:focus-visible { opacity: 1 }
+.turn-rewind:hover { background: var(--hover) }
 
 input.bare {
   font: inherit;
