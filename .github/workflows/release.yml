@@ -25,6 +25,8 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -45,6 +47,17 @@ jobs:
           fi
           echo "Releasing $VER (last release: ${LAST:-none})"
           echo "v=$VER" >> "$GITHUB_OUTPUT"
+          echo "last=$LAST" >> "$GITHUB_OUTPUT"
+
+      - name: Write release notes from the commits since the last release
+        env:
+          LAST: ${{ steps.ver.outputs.last }}
+        run: |
+          RANGE=HEAD
+          if [ -n "$LAST" ] && git rev-parse -q --verify "refs/tags/v$LAST" >/dev/null; then RANGE="v$LAST..HEAD"; fi
+          git log --no-merges --format=%s "$RANGE" > subjects.txt
+          node scripts/release-notes.cjs subjects.txt > notes.md
+          cat notes.md
 
       - name: Install, test and build
         env:
@@ -63,7 +76,7 @@ jobs:
           if [ "$DRAFT" = "false" ]; then echo "v$VER is already released"; exit 1; fi
           if [ "$DRAFT" = "true" ]; then gh release delete "v$VER" --repo "$GITHUB_REPOSITORY" --yes; fi
           gh release create "v$VER" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --draft \
-            --title "Kokpit $VER" --generate-notes \
+            --title "Kokpit $VER" --notes-file notes.md \
             "dist/Kokpit-$VER-arm64.dmg" "dist/Kokpit-$VER-arm64-mac.zip"
           gh release edit "v$VER" --repo "$GITHUB_REPOSITORY" --draft=false
 
