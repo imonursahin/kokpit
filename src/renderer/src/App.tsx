@@ -70,6 +70,14 @@ export function App() {
       return new Set()
     }
   })
+  const [pinned, setPinned] = useState<Set<string>>(() => {
+    try {
+      const raw: unknown = JSON.parse(localStorage.getItem('kokpit.pinned') ?? '[]')
+      return new Set(Array.isArray(raw) ? raw.filter((x): x is string => typeof x === 'string') : [])
+    } catch {
+      return new Set()
+    }
+  })
   const [openId, setOpenId] = useState<string | null>(null)
   const [searchOpen, setSearchOpen] = useState(false)
   const [libSelect, setLibSelect] = useState<{ kind: LibraryKind; path: string } | null>(null)
@@ -142,9 +150,10 @@ export function App() {
       .filter((s) => !archived.has(s.id))
       .map((s) => {
         const at = lastAt.get(s.id) ?? ''
-        return seen && s.status === 'done' && (seen[s.id] ?? '') < at ? { ...s, unread: true } : s
+        const unread = !!seen && s.status === 'done' && (seen[s.id] ?? '') < at
+        return unread || pinned.has(s.id) ? { ...s, unread, pinned: pinned.has(s.id) } : s
       })
-  }, [sessions, archived, items, seen])
+  }, [sessions, archived, pinned, items, seen])
 
   const counts = useMemo(
     () => ({
@@ -170,6 +179,16 @@ export function App() {
         else if (t.page === 'about') openAboutSettings(setPage)
       }),
     [open]
+  )
+  const togglePin = useCallback(
+    (id: string) =>
+      setPinned((prev) => {
+        const next = new Set(prev)
+        if (!next.delete(id)) next.add(id)
+        localStorage.setItem('kokpit.pinned', JSON.stringify([...next]))
+        return next
+      }),
+    []
   )
   const archive = useCallback(
     (id: string) =>
@@ -225,6 +244,7 @@ export function App() {
             else open(id)
           }}
           onArchive={archive}
+          onPin={togglePin}
           onNew={() => setNewSession({})}
           onPickJira={() => setPage('jira')}
           onRetry={retry}

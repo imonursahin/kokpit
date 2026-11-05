@@ -13,13 +13,15 @@ export function SessionRow({
   selected,
   compact,
   onOpen,
-  onAllow
+  onAllow,
+  onPin
 }: {
   s: SessionSummary
   selected?: boolean
   compact?: boolean
   onOpen?: () => void
   onAllow?: () => void
+  onPin?: () => void
 }) {
   const waiting = s.status === 'waiting'
   const subIcon =
@@ -69,8 +71,27 @@ export function SessionRow({
         )}
       </span>
       <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <div style={{ fontSize: 13.5, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-          {s.title}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+          <span style={{ fontSize: 13.5, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>
+            {s.title}
+          </span>
+          {onPin ? (
+            <button
+              className={`row-pin${s.pinned ? ' on' : ''}`}
+              aria-label={s.pinned ? 'Unpin' : 'Pin to top'}
+              title={s.pinned ? 'Unpin' : 'Pin to top'}
+              aria-pressed={!!s.pinned}
+              onClick={(e) => {
+                e.stopPropagation()
+                onPin()
+              }}
+              style={{ display: 'flex', flexShrink: 0, padding: 2, borderRadius: 5, cursor: 'pointer' }}
+            >
+              <Icon name="keep" size={15} weight={s.pinned ? 600 : 400} color={s.pinned ? 'var(--tx)' : 'var(--tx3)'} />
+            </button>
+          ) : (
+            s.pinned && <Icon name="keep" size={15} weight={600} color="var(--tx3)" />
+          )}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, fontSize: 12, color: SUB_COLOR[s.status] }}>
           {subIcon && <Icon name={subIcon} size={15} />}

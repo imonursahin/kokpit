@@ -180,6 +180,11 @@ button {
 
 .step-row:hover,
 .menu-item:hover { background: var(--hover) }
+.row-pin { opacity: 0 }
+.menu-item:hover .row-pin,
+.row-pin:focus-visible,
+.row-pin.on { opacity: 1 }
+.row-pin:hover { background: var(--hover) }
 
 input.bare {
   font: inherit;

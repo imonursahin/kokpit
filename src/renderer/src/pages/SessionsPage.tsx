@@ -83,6 +83,7 @@ export function SessionsPage({
   onOpen,
   onAllow,
   onArchive,
+  onPin,
   onNew,
   onPickJira,
   onRetry,
@@ -95,6 +96,7 @@ export function SessionsPage({
   onOpen: (id: string) => void
   onAllow: (id: string) => void
   onArchive: (id: string) => void
+  onPin: (id: string) => void
   onNew: () => void
   onPickJira: () => void
   onRetry: () => void
@@ -118,12 +120,14 @@ export function SessionsPage({
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase()
-    return sessions.filter(
-      (s) =>
-        (tab === 'all' || s.status === tab) &&
-        (!jira || s.jira === jira) &&
-        (!q || s.title.toLowerCase().includes(q))
-    )
+    return sessions
+      .filter(
+        (s) =>
+          (tab === 'all' || s.status === tab) &&
+          (!jira || s.jira === jira) &&
+          (!q || s.title.toLowerCase().includes(q))
+      )
+      .sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned))
   }, [sessions, tab, jira, query])
 
   const selected = rows.find((r) => r.id === selectedId) ?? null
@@ -155,6 +159,8 @@ export function SessionsPage({
         onAllow(selected.id)
       } else if (e.key === 'Backspace' && selected) {
         onArchive(selected.id)
+      } else if ((e.key === 'p' || e.key === 'P') && selected) {
+        onPin(selected.id)
       } else if (e.key === '/') {
         e.preventDefault()
         filterRef.current?.focus()
@@ -171,7 +177,7 @@ export function SessionsPage({
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [state, rows, selectedId, selected, onOpen, onAllow, onArchive])
+  }, [state, rows, selectedId, selected, onOpen, onAllow, onArchive, onPin])
 
   const isList = state === 'list'
 
@@ -348,6 +354,7 @@ export function SessionsPage({
               selected={s.id === selectedId}
               onOpen={() => onOpen(s.id)}
               onAllow={() => onAllow(s.id)}
+              onPin={() => onPin(s.id)}
             />
           ))}
 
@@ -477,6 +484,7 @@ export function SessionsPage({
         <KeyLegend k="↵" label="Open" />
         <KeyLegend k="Y" label="Allow" />
         <KeyLegend k="G W" label="Jump to next waiting" />
+        <KeyLegend k="P" label="Pin" />
         <KeyLegend k="⌫" label="Archive" />
         <span style={{ flex: 1 }} />
         {isList && <span>{footer ?? `Today · ${sessions.length} sessions · $${total.toFixed(2)}`}</span>}

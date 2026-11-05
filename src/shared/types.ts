@@ -14,6 +14,7 @@ export type SessionSummary = {
   time: string
   cost: string
   unread?: boolean
+  pinned?: boolean
 }
 
 export type Page =
