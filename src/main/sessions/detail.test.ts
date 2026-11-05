@@ -31,7 +31,7 @@ test('a claude turn keeps text and tool steps in the order they happened', async
       a([{ type: 'text', text: 'Done.' }], '2026-01-01T10:00:05Z')
     ].join('\n')
   )
-  const item = { id: 's', file, title: 't', cwd: dir, repo: 'r', branch: 'main', jira: '', prNumber: null, prUrl: '', startedAt: '2026-01-01T10:00:00Z', lastAt: '2026-01-01T10:00:05Z', costUsd: 0, costComplete: true, model: '', status: 'done', sub: '', headless: false } as const
+  const item = { id: 's', file, title: 't', cwd: dir, repo: 'r', branch: 'main', jira: '', prNumber: null, prUrl: '', startedAt: '2026-01-01T10:00:00Z', lastAt: '2026-01-01T10:00:05Z', costUsd: 0, costComplete: true, model: '', mode: '', status: 'done', sub: '', headless: false } as const
   const detail = await buildDetail({ ...item })
   const claude = detail.turns.find((t) => t.kind === 'claude')
   expect(claude?.kind === 'claude' && claude.parts?.map((p) => (p.kind === 'text' ? `text:${p.text}` : `steps:${p.steps.length}`))).toEqual([

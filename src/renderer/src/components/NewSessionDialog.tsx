@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react'
 import type { LibraryRepo } from '@shared/library'
-import type { RunnerEffort } from '@shared/runner'
+import { MODE_LABELS, MODES, type RunnerEffort, type RunnerMode } from '@shared/runner'
 import { libraryApi } from '@/data/libraryApi'
 import { useRunner } from '@/data/useRunner'
 import { useSlashCommands } from './SlashCommands'
@@ -19,7 +19,7 @@ const MODELS = [
 
 const EFFORTS: RunnerEffort[] = ['low', 'medium', 'high', 'xhigh', 'max']
 
-type Focus = 'repo' | 'path' | 'title' | 'prompt' | 'model' | 'effort' | null
+type Focus = 'repo' | 'path' | 'title' | 'prompt' | 'model' | 'effort' | 'mode' | null
 
 function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
@@ -60,6 +60,7 @@ export function NewSessionDialog({
   const [title, setTitle] = useState(jiraKey ? `${jiraKey} ` : '')
   const [model, setModel] = useState(defaultModel)
   const [effort, setEffort] = useState<RunnerEffort>(defaultEffort)
+  const [mode, setMode] = useState<RunnerMode>('default')
   const [focus, setFocus] = useState<Focus>('prompt')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -100,7 +101,8 @@ export function NewSessionDialog({
       prompt: prompt.trim(),
       title: title.trim() || undefined,
       model,
-      effort
+      effort,
+      mode
     })
       .then((tempId) => alive.current && onStarted(tempId))
       .catch((err: unknown) => alive.current && setError(errorText(err)))
@@ -316,7 +318,7 @@ export function NewSessionDialog({
               />
             </div>
           </Field>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
             <Field label="Model">
               <select
                 aria-label="Model"
@@ -345,6 +347,22 @@ export function NewSessionDialog({
                 {EFFORTS.map((x) => (
                   <option key={x} value={x}>
                     {x}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Mode">
+              <select
+                aria-label="Mode"
+                value={mode}
+                onFocus={() => setFocus('mode')}
+                onBlur={() => setFocus(null)}
+                onChange={(e) => setMode(e.target.value as RunnerMode)}
+                style={box(focus === 'mode')}
+              >
+                {MODES.map((m) => (
+                  <option key={m} value={m}>
+                    {MODE_LABELS[m]}
                   </option>
                 ))}
               </select>

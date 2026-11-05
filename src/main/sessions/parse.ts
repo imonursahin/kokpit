@@ -9,6 +9,7 @@ export type ParsedSummary = {
   branch: string
   entrypoint: string
   model: string
+  mode: string
   prNumber: number | null
   prUrl: string
   startedAt: string
@@ -122,6 +123,7 @@ export class SessionAccumulator {
       branch: '',
       entrypoint: '',
       model: '',
+      mode: '',
       prNumber: null,
       prUrl: '',
       startedAt: '',
@@ -163,6 +165,7 @@ export class SessionAccumulator {
     if (!this.s.cwd && str(o['cwd'])) this.s.cwd = str(o['cwd'])
     if (str(o['gitBranch'])) this.s.branch = str(o['gitBranch'])
     if (!this.s.entrypoint && str(o['entrypoint'])) this.s.entrypoint = str(o['entrypoint'])
+    if (str(o['permissionMode']) && o['isSidechain'] !== true) this.s.mode = str(o['permissionMode'])
 
     switch (type) {
       case 'ai-title':

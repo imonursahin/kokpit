@@ -15,6 +15,7 @@ export type SessionIndexItem = {
   costUsd: number
   costComplete: boolean
   model: string
+  mode: string
   status: SessionStatus
   sub: string
   headless: boolean

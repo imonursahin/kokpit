@@ -12,6 +12,17 @@ function feedAll(acc: SessionAccumulator, lines: string[]) {
 }
 
 describe('SessionAccumulator', () => {
+  test('keeps the last permission mode the main session switched to', () => {
+    const acc = new SessionAccumulator('m')
+    const s = feedAll(acc, [
+      line({ type: 'user', permissionMode: 'default', message: { content: 'hi' } }),
+      line({ type: 'permission-mode', permissionMode: 'plan' }),
+      line({ type: 'user', isSidechain: true, permissionMode: 'bypassPermissions', message: { content: 'sub' } }),
+      line({ type: 'permission-mode', permissionMode: 'auto' })
+    ])
+    expect(s.mode).toBe('auto')
+  })
+
   test('summarises a session and counts each API message once', () => {
     const acc = new SessionAccumulator('abc')
     const s = feedAll(acc, [

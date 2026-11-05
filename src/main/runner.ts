@@ -9,7 +9,7 @@ import {
   type SDKMessage,
   type SDKUserMessage
 } from '@anthropic-ai/claude-agent-sdk'
-import type { AskDecision, LiveSession, PendingAsk, RunnerEvent, StartSession } from '../shared/runner'
+import { isRunnerMode, type AskDecision, type LiveSession, type PendingAsk, type RunnerEvent, type StartSession } from '../shared/runner'
 import { memoryDir } from './assistant'
 
 class InputQueue implements AsyncIterable<SDKUserMessage> {
@@ -122,6 +122,7 @@ export class Runner {
     if (!existsSync(req.cwd) || !statSync(req.cwd).isDirectory()) throw new Error(`Folder not found: ${req.cwd}`)
     const hasPrompt = !!req.prompt.trim()
     if (req.resumeId && !hasPrompt) throw new Error('Write a message first')
+    if (req.mode !== undefined && !isRunnerMode(req.mode)) throw new Error('invalid mode')
     if (req.resumeId && this.find(req.resumeId)) {
       this.send(req.resumeId, req.prompt)
       return { tempId: req.resumeId }
@@ -137,6 +138,7 @@ export class Runner {
       cwd: req.cwd,
       state: hasPrompt ? 'starting' : 'idle',
       model: req.model ?? '',
+      mode: req.mode ?? 'default',
       costUsd: 0,
       pending: [],
       startedAt: new Date().toISOString()
@@ -157,7 +159,8 @@ export class Runner {
         // The autoMemoryDirectory setting is dropped for SDK-launched sessions; this undocumented override is what the CLI honors (checked on 2.1.318).
         env: kokpit ? { ...process.env, CLAUDE_COWORK_MEMORY_PATH_OVERRIDE: memoryDir(kokpit.home) } : undefined,
         systemPrompt: kokpit?.prompt ? { type: 'preset', preset: 'claude_code', append: kokpit.prompt } : undefined,
-        permissionMode: 'default',
+        permissionMode: req.mode ?? 'default',
+        allowDangerouslySkipPermissions: true,
         canUseTool: (toolName, toolInput, opts) =>
           new Promise<PermissionResult>((resolve) => {
             const l = liveRef
@@ -223,8 +226,14 @@ export class Runner {
         }
         if (msg.type === 'system' && msg.subtype === 'init') {
           l.info.model = msg.model
+          if (isRunnerMode(msg.permissionMode)) l.info.mode = msg.permissionMode
           l.info.state = 'running'
           this.publish(l)
+        } else if (msg.type === 'system' && msg.subtype === 'status') {
+          if (isRunnerMode(msg.permissionMode) && msg.permissionMode !== l.info.mode) {
+            l.info.mode = msg.permissionMode
+            this.publish(l)
+          }
         } else if (msg.type === 'system' && msg.subtype === 'informational') {
           if (/blocked by hook|blocked/i.test(msg.content)) {
             l.info.lastError = msg.content.split('\n').slice(0, 3).join(' ')
@@ -278,6 +287,15 @@ export class Runner {
     if (!l) throw new Error('This session is not running in Kokpit')
     l.input.push(text)
     l.info.state = 'running'
+    this.publish(l)
+  }
+
+  async setMode(sessionId: unknown, mode: unknown): Promise<void> {
+    if (typeof sessionId !== 'string' || !isRunnerMode(mode)) throw new Error('invalid mode')
+    const l = this.find(sessionId)
+    if (!l) throw new Error('This session is not running in Kokpit')
+    await l.q.setPermissionMode(mode)
+    l.info.mode = mode
     this.publish(l)
   }
 

@@ -1,11 +1,28 @@
 export type RunnerEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
+export type RunnerMode = 'default' | 'acceptEdits' | 'plan' | 'auto' | 'bypassPermissions'
+
+export const MODE_LABELS: Record<RunnerMode, string> = {
+  default: 'Ask',
+  acceptEdits: 'Accept edits',
+  plan: 'Plan',
+  auto: 'Auto',
+  bypassPermissions: 'Bypass'
+}
+
+export const MODES = Object.keys(MODE_LABELS) as RunnerMode[]
+
+export function isRunnerMode(v: unknown): v is RunnerMode {
+  return typeof v === 'string' && Object.hasOwn(MODE_LABELS, v)
+}
+
 export type StartSession = {
   cwd: string
   prompt: string
   title?: string
   model?: string
   effort?: RunnerEffort
+  mode?: RunnerMode
   resumeId?: string
 }
 
@@ -30,6 +47,7 @@ export type LiveSession = {
   cwd: string
   state: LiveState
   model: string
+  mode: RunnerMode
   costUsd: number
   pending: PendingAsk[]
   lastError?: string

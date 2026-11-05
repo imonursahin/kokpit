@@ -425,6 +425,7 @@ export function registerIpc(
     runner.respond(id, requestId, decision, note)
   )
   ipcMain.handle('runner:interrupt', (_e, id: unknown) => runner.interrupt(id))
+  ipcMain.handle('runner:setMode', (_e, id: unknown, mode: unknown) => runner.setMode(id, mode))
 
   return () => {
     clearInterval(tick)
@@ -438,7 +439,7 @@ export function registerIpc(
     watcher?.close()
     ipcMain.removeHandler('sessions:list')
     ipcMain.removeHandler('sessions:detail')
-    for (const ch of ['library:list', 'library:save', 'library:create', 'library:delete', 'search:query', 'runner:list', 'runner:start', 'runner:send', 'runner:respond', 'runner:interrupt', 'integrations:status', 'integrations:connectJira', 'integrations:connectGithub', 'integrations:disconnect', 'jira:issues', 'jira:issue', 'github:prs', 'app:user', 'changes:revert', 'github:prsByUrl', 'settings:get', 'settings:update', 'app:info', 'app:openFolder', 'app:keepAwake', 'app:doctor', 'app:planUsage', 'tray:refreshUsage', 'app:testNotification', 'sessions:rebuild', 'dialog:pickFiles', 'plan:save', 'jira:comment', 'github:mine', 'github:counts', 'sessions:rename', 'sessions:delete', 'mcp:status', 'mcp:remove', 'mcp:logout', 'mcp:add', 'term:mcpLogin', 'term:update', 'update:get', 'update:check', 'app:relaunch', 'term:write', 'term:resize', 'term:kill'])
+    for (const ch of ['library:list', 'library:save', 'library:create', 'library:delete', 'search:query', 'runner:list', 'runner:start', 'runner:send', 'runner:respond', 'runner:interrupt', 'runner:setMode', 'integrations:status', 'integrations:connectJira', 'integrations:connectGithub', 'integrations:disconnect', 'jira:issues', 'jira:issue', 'github:prs', 'app:user', 'changes:revert', 'github:prsByUrl', 'settings:get', 'settings:update', 'app:info', 'app:openFolder', 'app:keepAwake', 'app:doctor', 'app:planUsage', 'tray:refreshUsage', 'app:testNotification', 'sessions:rebuild', 'dialog:pickFiles', 'plan:save', 'jira:comment', 'github:mine', 'github:counts', 'sessions:rename', 'sessions:delete', 'mcp:status', 'mcp:remove', 'mcp:logout', 'mcp:add', 'term:mcpLogin', 'term:update', 'update:get', 'update:check', 'app:relaunch', 'term:write', 'term:resize', 'term:kill'])
       ipcMain.removeHandler(ch)
     if (awakeId !== null) powerSaveBlocker.stop(awakeId)
     runner.dispose()

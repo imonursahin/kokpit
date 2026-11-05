@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import type { AskDecision, LiveSession, LiveState } from '@shared/runner'
+import { MODE_LABELS, MODES, type AskDecision, type LiveSession, type LiveState, type RunnerMode } from '@shared/runner'
 import type { SessionDetailData } from '@shared/sessionDetail'
 import type { SessionStatus } from '@shared/types'
 import { relativeTime } from '@shared/time'
@@ -1204,7 +1204,9 @@ function EmptyPanel({ text }: { text: string }) {
 
 type LiveProps = {
   live?: LiveSession
-  onSend?: (text: string, opts?: { model?: string; effort?: string }) => Promise<void>
+  onSend?: (text: string, opts?: { model?: string; effort?: string; mode?: RunnerMode }) => Promise<void>
+  onMode?: (mode: RunnerMode) => Promise<void>
+  permissionMode?: RunnerMode
   onStop?: () => void
   onRespond?: (requestId: string, decision: AskDecision) => void
   onRevert?: (path: string) => Promise<string>
@@ -1243,7 +1245,9 @@ function Detail({
   onDelete,
   modelOptions,
   effortOptions,
-  defaultEffort
+  defaultEffort,
+  onMode,
+  permissionMode
 }: { data: DetailView; onBack: () => void } & LiveProps) {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
@@ -1274,6 +1278,18 @@ function Detail({
   const slash = useSlashCommands(text, setText, 'above')
   const [model, setModel] = useState(data.model)
   const [thinking, setThinking] = useState(defaultEffort ?? data.thinking)
+  const [mode, setMode] = useState<RunnerMode>(permissionMode ?? 'default')
+  useEffect(() => {
+    if (permissionMode) setMode(permissionMode)
+  }, [permissionMode])
+  const pickMode = (next: RunnerMode) => {
+    setMode(next)
+    onMode?.(next).catch((err: unknown) => {
+      if (!alive.current) return
+      setMode(permissionMode ?? 'default')
+      setSendError(err instanceof Error ? err.message : String(err))
+    })
+  }
   const [planMsg, setPlanMsg] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null)
   const [jiraArmed, setJiraArmed] = useState(false)
   const [running, setRunning] = useState(data.running)
@@ -1418,7 +1434,7 @@ function Detail({
     const id = Date.now()
     setOutbox((o) => [...o, { id, text: t, before: countSent(t) }])
     setText('')
-    onSend(t, modelOptions ? { model: modelId, effort: thinking.toLowerCase() } : undefined)
+    onSend(t, modelOptions ? { model: modelId, effort: thinking.toLowerCase(), mode } : undefined)
       .catch((err: unknown) => {
         if (!alive.current) return
         setOutbox((o) => o.filter((m) => m.id !== id))
@@ -1713,6 +1729,11 @@ function Detail({
                   onChange={(e) => setText(e.target.value)}
                   onKeyDown={(e) => {
                     if (slash.onKeyDown(e)) return
+                    if (e.key === 'Tab' && e.shiftKey && modelOptions) {
+                      e.preventDefault()
+                      pickMode(MODES[(MODES.indexOf(mode) + 1) % MODES.length] ?? 'default')
+                      return
+                    }
                     if (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.nativeEvent.isComposing) {
                       e.preventDefault()
                       send()
@@ -1748,8 +1769,17 @@ function Detail({
                   options={effortOptions ?? THINKING}
                   onChange={setThinking}
                 />
+                {modelOptions && (
+                  <ComposerChip
+                    icon="shield"
+                    prefix="Mode: "
+                    value={MODE_LABELS[mode]}
+                    options={MODES.map((m) => MODE_LABELS[m])}
+                    onChange={(label) => pickMode(MODES.find((m) => MODE_LABELS[m] === label) ?? 'default')}
+                  />
+                )}
                 <span style={{ flex: 1 }} />
-                <span style={{ fontSize: 11.5, color: 'var(--tx3)' }}>{running ? 'Esc to interrupt' : '↵ send · ⇧↵ new line'}</span>
+                <span style={{ fontSize: 11.5, color: 'var(--tx3)' }}>{running ? 'Esc to interrupt' : '↵ send · ⇧↵ new line · ⇧⇥ mode'}</span>
                 {running ? (
                   <button
                     onClick={stop}

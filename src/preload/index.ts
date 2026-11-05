@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import type { CreateLibraryEntry, LibraryEntry, LibraryListing } from '../shared/library'
 import type { ConnectionId, ConnectionInfo, GithubConnectInput, JiraConnectInput, JiraIssue, MyPullRequests, PullRequestInfo } from '../shared/integrations'
-import type { AskDecision, LiveSession, RunnerEvent, StartSession } from '../shared/runner'
+import type { AskDecision, LiveSession, RunnerEvent, RunnerMode, StartSession } from '../shared/runner'
 import type { SearchResponse } from '../shared/search'
 import type { AppInfo, DoctorCheck, KokpitSettings, PlanUsage, UpdateStatus } from '../shared/settings'
 import type { TrayState, TrayTarget } from '../shared/tray'
@@ -84,6 +84,7 @@ const api = {
     respond: (sessionId: string, requestId: string, decision: AskDecision, note?: string): Promise<void> =>
       ipcRenderer.invoke('runner:respond', sessionId, requestId, decision, note),
     interrupt: (sessionId: string): Promise<void> => ipcRenderer.invoke('runner:interrupt', sessionId),
+    setMode: (sessionId: string, mode: RunnerMode): Promise<void> => ipcRenderer.invoke('runner:setMode', sessionId, mode),
     onEvent: (cb: (e: RunnerEvent) => void): (() => void) => {
       const handler = (_e: IpcRendererEvent, ev: RunnerEvent) => cb(ev)
       ipcRenderer.on('runner:event', handler)

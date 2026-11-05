@@ -7,9 +7,9 @@ import { SessionAccumulator, type AccumulatorState } from './parse'
 import { workRepo } from './repo'
 
 type CacheEntry = { size: number; mtimeMs: number; offset: number; state: AccumulatorState }
-type CacheFile = { version: 4; entries: Record<string, CacheEntry> }
+type CacheFile = { version: 5; entries: Record<string, CacheEntry> }
 
-const CACHE_VERSION = 4
+const CACHE_VERSION = 5
 const CONCURRENCY = 4
 
 export const PROJECTS_DIR = join(homedir(), '.claude', 'projects')
@@ -200,6 +200,7 @@ export class SessionStore {
         costUsd: s.costUsd,
         costComplete: s.costComplete,
         model: s.model,
+        mode: s.mode ?? '',
         status,
         sub:
           status === 'waiting' || status === 'running'

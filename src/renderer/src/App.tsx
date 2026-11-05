@@ -15,6 +15,7 @@ import { PullRequestsPage } from '@/pages/PullRequestsPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 import { McpPage } from '@/pages/McpPage'
 import { EFFORT_CHOICES, MODEL_CHOICES, type KokpitSettings } from '@shared/settings'
+import { isRunnerMode } from '@shared/runner'
 import { useSessions } from '@/data/useSessions'
 import { useTheme } from '@/data/theme'
 import { useRunner } from '@/data/useRunner'
@@ -330,9 +331,12 @@ export function App() {
                   model: opts?.model ?? settings?.defaultModel,
                   effort: (EFFORT_CHOICES as string[]).includes(opts?.effort ?? '')
                     ? (opts?.effort as KokpitSettings['defaultEffort'])
-                    : settings?.defaultEffort
+                    : settings?.defaultEffort,
+                  mode: opts?.mode
                 })
             }}
+            permissionMode={live?.mode ?? (isRunnerMode(openItem?.mode) ? openItem.mode : undefined)}
+            onMode={live ? (m) => runner.setMode(live.sessionId, m) : undefined}
             modelOptions={MODEL_CHOICES}
             effortOptions={EFFORT_CHOICES}
             defaultEffort={settings?.defaultEffort}
