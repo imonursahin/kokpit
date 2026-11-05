@@ -1,0 +1,78 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+    paths: [package.json]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  RELEASE_REPO: imonursahin/kokpit-releases
+  GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read version
+        id: ver
+        run: echo "v=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Skip if this version is already out
+        id: check
+        run: |
+          DRAFT=$(gh release view "v${{ steps.ver.outputs.v }}" --repo "$RELEASE_REPO" --json isDraft -q .isDraft 2>/dev/null || echo missing)
+          if [ "$DRAFT" = "false" ]; then echo "skip=true" >> "$GITHUB_OUTPUT"; else echo "skip=false" >> "$GITHUB_OUTPUT"; fi
+
+      - uses: actions/setup-node@v4
+        if: steps.check.outputs.skip == 'false'
+        with:
+          node-version: 22
+
+      - name: Install, test and build
+        if: steps.check.outputs.skip == 'false'
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: |
+          npm ci
+          npm test
+          npm run typecheck
+          npm run dist
+
+      - name: Publish the release
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          VER="${{ steps.ver.outputs.v }}"
+          gh release view "v$VER" --repo "$RELEASE_REPO" >/dev/null 2>&1 \
+            || gh release create "v$VER" --repo "$RELEASE_REPO" --draft --title "Kokpit $VER" --notes "Kokpit $VER"
+          gh release upload "v$VER" --repo "$RELEASE_REPO" --clobber dist/Kokpit-*.dmg dist/Kokpit-*.zip
+          gh release edit "v$VER" --repo "$RELEASE_REPO" --draft=false
+
+      - name: Update the Homebrew cask
+        if: steps.check.outputs.skip == 'false'
+        env:
+          DEPLOY_KEY: ${{ secrets.TAP_DEPLOY_KEY }}
+        run: |
+          VER="${{ steps.ver.outputs.v }}"
+          SHA=$(shasum -a 256 "dist/Kokpit-$VER-arm64.dmg" | awk '{print $1}')
+          mkdir -p ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/tap_key
+          chmod 600 ~/.ssh/tap_key
+          ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/tap_key -o IdentitiesOnly=yes"
+          git clone git@github.com:imonursahin/homebrew-tap.git tap
+          mkdir -p tap/Casks
+          sed -e "s/@VERSION@/$VER/" -e "s/@SHA@/$SHA/" -e "s#@REPO@#$RELEASE_REPO#" build/kokpit.rb > tap/Casks/kokpit.rb
+          cd tap
+          git config user.name "Onur Şahin"
+          git config user.email "31903339+imonursahin@users.noreply.github.com"
+          git add Casks/kokpit.rb
+          if ! git diff --cached --quiet; then
+            git commit -m "kokpit $VER"
+            git push
+          fi
