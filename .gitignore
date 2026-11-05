@@ -1,0 +1,6 @@
+node_modules/
+out/
+dist/
+plan.md
+.DS_Store
+*.tsbuildinfo
