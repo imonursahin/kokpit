@@ -379,7 +379,11 @@ export async function buildDetail(item: SessionIndexItem, nowMs = Date.now()): P
     }
   }
   if (!fromGit && edits.length) {
-    files = transcriptFiles(edits.filter((e) => !PLAN_FILE.test(e.path)), root ?? item.cwd)
+    const base = root ?? item.cwd
+    files = transcriptFiles(
+      edits.filter((e) => !PLAN_FILE.test(e.path) && e.path.startsWith(`${base}/`)),
+      base
+    )
     filesSource = files.length ? 'transcript' : 'none'
   }
 
