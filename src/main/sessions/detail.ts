@@ -144,7 +144,8 @@ export function commandPrompt(text: string): string {
 
 export function localCommandOutput(content: string): string {
   const out = [tag(content, 'local-command-stdout'), tag(content, 'local-command-stderr')].filter((x): x is string => !!x && !!x.trim())
-  return (out.length ? out.join('\n\n') : content).replace(/\x1b\[[0-9;]*m/g, '').trim()
+  const raw = out.length ? out.join('\n\n') : /<local-command-std(out|err)>/.test(content) ? '' : content
+  return raw.replace(/\x1b\[[0-9;]*m/g, '').trim()
 }
 
 function isNoise(text: string): boolean {

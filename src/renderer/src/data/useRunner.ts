@@ -14,6 +14,13 @@ export type Runner = {
 
 const EMPTY = new Map<string, LiveSession>()
 
+export function rekeyIds(ids: Map<string, string>, from: string, to: string): Map<string, string> {
+  const next = new Map(ids)
+  for (const [k, v] of next) if (v === from) next.set(k, to)
+  next.set(from, to)
+  return next
+}
+
 export function useRunner(): Runner {
   const api = window.kokpit?.runner
   const [live, setLive] = useState<Map<string, LiveSession>>(EMPTY)
@@ -39,7 +46,7 @@ export function useRunner(): Runner {
         setLive((prev) => new Map(prev).set(e.session.sessionId, e.session))
       } else if (e.type === 'started') {
         rekeyed.current.add(e.tempId)
-        setIds((prev) => new Map(prev).set(e.tempId, e.sessionId))
+        setIds((prev) => rekeyIds(prev, e.tempId, e.sessionId))
         setLive((prev) => {
           const old = prev.get(e.tempId)
           if (!old) return prev

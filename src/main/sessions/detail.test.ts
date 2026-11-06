@@ -10,6 +10,7 @@ test('slash command messages turn back into what the user typed', () => {
 test('local command output drops the wrapper tags and color codes', () => {
   expect(localCommandOutput('<local-command-stdout>\u001b[32mReloaded 3 plugins\u001b[0m</local-command-stdout>')).toBe('Reloaded 3 plugins')
   expect(localCommandOutput('<local-command-stderr>Unknown command</local-command-stderr>')).toBe('Unknown command')
+  expect(localCommandOutput('<local-command-stdout></local-command-stdout>')).toBe('')
 })
 
 test('a claude turn keeps text and tool steps in the order they happened', async () => {
