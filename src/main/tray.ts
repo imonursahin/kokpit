@@ -163,7 +163,6 @@ export class KokpitTray {
       panel.setPosition(x, Math.round(b.y + b.height + 4))
     }
     panel.webContents.send('tray:state', this.state())
-    app.focus({ steal: true })
     panel.show()
     panel.focus()
   }
@@ -174,6 +173,7 @@ export class KokpitTray {
       width: PANEL_WIDTH,
       height: 420,
       show: false,
+      type: 'panel',
       frame: false,
       resizable: false,
       movable: false,
