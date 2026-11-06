@@ -11,7 +11,7 @@ const HEADING = /^(#{1,6})\s+(.*)$/
 const BULLET = /^\s*[-*+]\s+(.*)$/
 const NUMBERED = /^\s*(\d+)[.)]\s+(.*)$/
 const FENCE = /^\s*```/
-const INLINE = /(`[^`]+`)|(\*\*[^*]+\*\*)|(\[[^\]]+\]\([^)\s]+\))|(\*[^*\s][^*]*\*)|((?<!\w)_[^_\s][^_]*_(?!\w))/g
+const INLINE = /(`[^`]+`)|(\*\*[^*]+\*\*)|(\[[^\]]+\]\([^)\s]+\))|(\*[^*\s][^*]*\*)|((?<!\w)_[^_\s][^_]*_(?!\w))|(https:\/\/[^\s<>()[\]`"']*[^\s<>()[\]`"'.,;:!?])/g
 
 export function parse(source: string): Block[] {
   const lines = source.replace(/\r\n?/g, '\n').split('\n')
@@ -86,7 +86,21 @@ const codeStyle: CSSProperties = {
   color: 'var(--tx)'
 }
 
-function inline(text: string): ReactNode[] {
+function link(key: number, href: string, label: ReactNode): ReactNode {
+  return (
+    <a
+      key={key}
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      style={{ color: 'var(--tx)', textDecoration: 'underline', textDecorationColor: 'var(--tx3)', textUnderlineOffset: 2, wordBreak: 'break-all' }}
+    >
+      {label}
+    </a>
+  )
+}
+
+export function inline(text: string): ReactNode[] {
   const out: ReactNode[] = []
   let last = 0
   for (const m of text.matchAll(INLINE)) {
@@ -101,21 +115,10 @@ function inline(text: string): ReactNode[] {
       const label = inline(tok.slice(1, close))
       const href = tok.slice(close + 2, -1)
       out.push(
-        href.startsWith('https://') ? (
-          <a
-            key={key}
-            href={href}
-            target="_blank"
-            rel="noreferrer"
-            style={{ color: 'var(--tx)', textDecoration: 'underline', textDecorationColor: 'var(--tx3)', textUnderlineOffset: 2 }}
-          >
-            {label}
-          </a>
-        ) : (
-          <span key={key}>{label}</span>
-        )
+        href.startsWith('https://') ? link(key, href, label) : <span key={key}>{label}</span>
       )
-    } else out.push(<em key={key}>{inline(tok.slice(1, -1))}</em>)
+    } else if (m[6]) out.push(link(key, tok, tok))
+    else out.push(<em key={key}>{inline(tok.slice(1, -1))}</em>)
     last = at + tok.length
   }
   if (last < text.length) out.push(text.slice(last))
