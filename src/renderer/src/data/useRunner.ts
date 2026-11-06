@@ -44,6 +44,19 @@ export function useRunner(): Runner {
       } else if (e.type === 'state') {
         if (rekeyed.current.has(e.session.sessionId)) return
         setLive((prev) => new Map(prev).set(e.session.sessionId, e.session))
+      } else if (e.type === 'ended') {
+        setLive((prev) => {
+          if (!prev.has(e.sessionId)) return prev
+          const next = new Map(prev)
+          next.delete(e.sessionId)
+          return next
+        })
+        setPartial((prev) => {
+          if (!prev.has(e.sessionId)) return prev
+          const next = new Map(prev)
+          next.delete(e.sessionId)
+          return next
+        })
       } else if (e.type === 'started') {
         rekeyed.current.add(e.tempId)
         setIds((prev) => rekeyIds(prev, e.tempId, e.sessionId))

@@ -335,6 +335,7 @@ export class Runner {
       l.pending.clear()
       this.publish(l)
       this.live.delete(l.key)
+      this.emit({ type: 'ended', sessionId: l.key })
     }
   }
 

@@ -339,11 +339,11 @@ export function App() {
                   mode: opts.mode ?? settings?.defaultMode
                 })
                 open(tempId)
-              } else if (runner.live.has(id) || live)
-                return runner.send(live?.sessionId ?? id, text, opts?.images, { model: opts?.model, effort: opts?.effort as KokpitSettings['defaultEffort'] | undefined })
-              else
-                await runner.start({
-                  cwd: openItem?.cwd ?? '',
+                return
+              }
+              const resume = () =>
+                runner.start({
+                  cwd: openItem?.cwd ?? live?.cwd ?? '',
                   prompt: text,
                   images: opts?.images,
                   resumeId: id,
@@ -352,6 +352,17 @@ export function App() {
                     ? (opts?.effort as KokpitSettings['defaultEffort'])
                     : settings?.defaultEffort,
                   mode: opts?.mode ?? settings?.defaultMode
+                })
+              if (!runner.live.has(id) && !live) {
+                await resume()
+                return
+              }
+              return runner
+                .send(live?.sessionId ?? id, text, opts?.images, { model: opts?.model, effort: opts?.effort as KokpitSettings['defaultEffort'] | undefined })
+                .catch(async (err: unknown) => {
+                  if (!/not running in Kokpit/.test((err as Error)?.message ?? '')) throw err
+                  await resume()
+                  return undefined
                 })
             }}
             permissionMode={live?.mode ?? (isRunnerMode(openItem?.mode) ? openItem.mode : undefined)}

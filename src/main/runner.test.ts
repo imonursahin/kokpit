@@ -191,3 +191,23 @@ test('a queued message can be taken back, models come from Claude Code, files ca
   await expect(runner.rewindFiles(tempId, process.cwd(), 'x', true)).rejects.toThrow('invalid rewind point')
   runner.dispose()
 })
+
+test('when the Claude process ends the session is dropped and the UI is told', async () => {
+  const sdk = await import('@anthropic-ai/claude-agent-sdk')
+  vi.mocked(sdk.query).mockImplementation((() => ({
+    close: vi.fn(),
+    async *[Symbol.asyncIterator]() {
+      yield { type: 'system', subtype: 'init', session_id: 'sess-1', model: 'm', permissionMode: 'default' }
+      yield { type: 'result', subtype: 'success', is_error: false, total_cost_usd: 0, session_id: 'sess-1' }
+    }
+  })) as never)
+  const { Runner } = await import('./runner')
+  const ended: string[] = []
+  const runner = new Runner((e) => {
+    if (e.type === 'ended') ended.push(e.sessionId)
+  })
+  await runner.start({ cwd: process.cwd(), prompt: 'hi' })
+  await vi.waitFor(() => expect(ended).toEqual(['sess-1']))
+  expect(runner.list()).toEqual([])
+  await expect(runner.send('sess-1', 'again')).rejects.toThrow('not running')
+})

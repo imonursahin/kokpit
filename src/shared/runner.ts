@@ -75,3 +75,4 @@ export type RunnerEvent =
   | { type: 'started'; tempId: string; sessionId: string }
   | { type: 'text'; sessionId: string; text: string }
   | { type: 'partial'; sessionId: string; text: string }
+  | { type: 'ended'; sessionId: string }
