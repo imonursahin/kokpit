@@ -141,7 +141,8 @@ export function PrChip({ label, url, jiraKey }: { label: string; url: string; ji
   const load = async (): Promise<PullRequestInfo[]> => {
     if (!api) return []
     const list = jiraKey ? await api.integrations.pullRequests(jiraKey) : url ? await api.integrations.pullRequestsByUrl([url]) : []
-    return list.filter((p) => p.state === 'Open' || p.state === 'Draft')
+    const rank = { Open: 0, Draft: 1, Merged: 2, Closed: 3 }
+    return [...list].sort((a, b) => rank[a.state] - rank[b.state])
   }
   const key = `prs:${jiraKey || url}`
   const { open: isOpen, data, show, hide } = useHoverLoad(key, load)
@@ -167,7 +168,7 @@ export function PrChip({ label, url, jiraKey }: { label: string; url: string; ji
       {isOpen && (
         <Popover width={380}>
           <span style={{ padding: '10px 14px 6px', fontSize: 11.5, color: 'var(--tx3)' }}>
-            {jiraKey ? `Open pull requests for ${jiraKey}` : 'Pull request'}
+            {jiraKey ? `Pull requests for ${jiraKey}` : 'Pull request'}
           </span>
           {data.state === 'loading' && (
             <Note>
@@ -175,7 +176,7 @@ export function PrChip({ label, url, jiraKey }: { label: string; url: string; ji
             </Note>
           )}
           {data.state === 'error' && <Note color="var(--err)">{data.message}</Note>}
-          {data.state === 'ready' && data.data.length === 0 && <Note>No open pull requests.</Note>}
+          {data.state === 'ready' && data.data.length === 0 && <Note>No pull requests.</Note>}
           {data.state === 'ready' &&
             data.data.map((p) => {
               const [text, color] = checksLine(p.checks)
