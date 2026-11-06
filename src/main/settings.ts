@@ -7,7 +7,8 @@ import { DEFAULT_SETTINGS, EFFORT_CHOICES, GITHUB_REFRESH_CHOICES, MODEL_CHOICES
 export function sanitizeSettings(input: unknown, base: KokpitSettings = DEFAULT_SETTINGS): KokpitSettings {
   const o = typeof input === 'object' && input !== null ? (input as Record<string, unknown>) : {}
   const out = { ...base, notify: { ...DEFAULT_SETTINGS.notify, ...base.notify } }
-  if (typeof o['defaultModel'] === 'string' && MODEL_CHOICES.some((m) => m.id === o['defaultModel'])) out.defaultModel = o['defaultModel']
+  if (typeof o['defaultModel'] === 'string' && (MODEL_CHOICES.some((m) => m.id === o['defaultModel']) || /^claude-[a-z0-9.-]{1,60}$/.test(o['defaultModel'])))
+    out.defaultModel = o['defaultModel']
   if (typeof o['defaultEffort'] === 'string' && (EFFORT_CHOICES as string[]).includes(o['defaultEffort']))
     out.defaultEffort = o['defaultEffort'] as KokpitSettings['defaultEffort']
   if (typeof o['defaultMode'] === 'string' && (MODES as string[]).includes(o['defaultMode']))

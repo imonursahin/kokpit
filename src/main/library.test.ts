@@ -54,3 +54,36 @@ test('several arguments become numbered placeholders starting at $0', async () =
   expect(argumentLines('<pr-url>')).toBe('$ARGUMENTS\n')
   expect(argumentLines('  ')).toBe('')
 })
+
+test('uploading md files adds new skills, agents and commands and skips the ones that exist', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'kokpit-up-'))
+  mkdirSync(join(home, 'agents'))
+  writeFileSync(join(home, 'agents', 'helper.md'), '---\nname: helper\n---\nold\n')
+  const lib = new Library()
+  await lib.list(home, {})
+
+  const skills = await lib.import(
+    'skills',
+    [
+      { fileName: 'SKILL.md', body: '---\nname: review\ndescription: d\n---\nbody' },
+      { fileName: 'Deploy.md', body: '# no frontmatter' },
+      { fileName: 'SKILL.md', body: 'no name here' },
+      { fileName: 'notes.txt', body: 'x' }
+    ],
+    {}
+  )
+  expect(skills.added.map((e) => e.name)).toEqual(['review', 'deploy'])
+  expect(readFileSync(join(home, 'skills', 'review', 'SKILL.md'), 'utf8')).toBe('---\nname: review\ndescription: d\n---\nbody\n')
+  expect(skills.failed.map((f) => f.file)).toEqual(['SKILL.md', 'notes.txt'])
+
+  const agents = await lib.import('agents', [{ fileName: 'helper.md', body: 'new' }, { fileName: '../../evil.md', body: '---\nname: ../x\n---\n' }], {})
+  expect(agents.skipped).toEqual(['helper.md'])
+  expect(agents.failed).toHaveLength(1)
+  expect(readFileSync(join(home, 'agents', 'helper.md'), 'utf8')).toContain('old')
+
+  const commands = await lib.import('commands', [{ fileName: 'ship.md', body: 'run it' }, { fileName: 'ship.md', body: 'again' }], {})
+  expect(commands.added).toHaveLength(1)
+  expect(commands.skipped).toEqual(['ship.md'])
+
+  await expect(lib.import('hooks', [{ fileName: 'x.md', body: '' }], {})).rejects.toThrow('Only skills')
+})

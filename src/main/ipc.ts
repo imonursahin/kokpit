@@ -296,6 +296,7 @@ export function registerIpc(
   })
   ipcMain.handle('library:save', (_e, absPath: unknown, body: unknown) => library.save(absPath, body, store.usage()))
   ipcMain.handle('library:delete', (_e, absPath: unknown) => library.remove(absPath))
+  ipcMain.handle('library:import', (_e, kind: unknown, files: unknown) => library.import(kind, files, store.usage()))
   ipcMain.handle('library:create', (_e, input: unknown) => library.create(input as never, store.usage()))
 
   let watcher: FSWatcher | null = null
@@ -436,6 +437,9 @@ export function registerIpc(
   )
   ipcMain.handle('runner:interrupt', (_e, id: unknown) => runner.interrupt(id))
   ipcMain.handle('runner:commands', (_e, cwd: unknown) => runner.commands(cwd))
+  ipcMain.handle('runner:models', () => runner.models())
+  ipcMain.handle('runner:cancelQueued', (_e, id: unknown, uuid: unknown) => runner.cancelQueued(id, uuid))
+  ipcMain.handle('runner:rewindFiles', (_e, id: unknown, cwd: unknown, uuid: unknown, dryRun: unknown) => runner.rewindFiles(id, cwd, uuid, dryRun))
   ipcMain.handle('shell:run', (_e, cwd: unknown, command: unknown) => runShell(cwd, command))
   ipcMain.handle('memory:append', (_e, target: unknown, cwd: unknown, note: unknown) => appendMemory(target, cwd, note))
   ipcMain.handle('files:mention', async (_e, cwd: unknown, query: unknown) => rankFiles(await listFiles(cwd), typeof query === 'string' ? query.slice(0, 200) : ''))
@@ -453,7 +457,7 @@ export function registerIpc(
     watcher?.close()
     ipcMain.removeHandler('sessions:list')
     ipcMain.removeHandler('sessions:detail')
-    for (const ch of ['library:list', 'library:save', 'library:create', 'library:delete', 'search:query', 'runner:list', 'runner:start', 'runner:send', 'runner:respond', 'runner:interrupt', 'runner:commands', 'files:mention', 'shell:run', 'memory:append', 'runner:setMode', 'integrations:status', 'integrations:connectJira', 'integrations:connectGithub', 'integrations:disconnect', 'jira:issues', 'jira:issue', 'github:prs', 'app:user', 'changes:revert', 'github:prsByUrl', 'settings:get', 'settings:update', 'app:info', 'app:openFolder', 'app:keepAwake', 'app:doctor', 'app:planUsage', 'tray:refreshUsage', 'app:testNotification', 'sessions:rebuild', 'dialog:pickFiles', 'plan:save', 'jira:comment', 'github:mine', 'github:counts', 'sessions:rename', 'sessions:delete', 'sessions:subagent', 'mcp:status', 'mcp:remove', 'mcp:logout', 'mcp:add', 'term:mcpLogin', 'term:update', 'update:get', 'update:check', 'app:relaunch', 'term:write', 'term:resize', 'term:kill'])
+    for (const ch of ['library:list', 'library:save', 'library:create', 'library:import', 'library:delete', 'search:query', 'runner:list', 'runner:start', 'runner:send', 'runner:respond', 'runner:interrupt', 'runner:commands', 'runner:models', 'runner:cancelQueued', 'runner:rewindFiles', 'files:mention', 'shell:run', 'memory:append', 'runner:setMode', 'integrations:status', 'integrations:connectJira', 'integrations:connectGithub', 'integrations:disconnect', 'jira:issues', 'jira:issue', 'github:prs', 'app:user', 'changes:revert', 'github:prsByUrl', 'settings:get', 'settings:update', 'app:info', 'app:openFolder', 'app:keepAwake', 'app:doctor', 'app:planUsage', 'tray:refreshUsage', 'app:testNotification', 'sessions:rebuild', 'dialog:pickFiles', 'plan:save', 'jira:comment', 'github:mine', 'github:counts', 'sessions:rename', 'sessions:delete', 'sessions:subagent', 'mcp:status', 'mcp:remove', 'mcp:logout', 'mcp:add', 'term:mcpLogin', 'term:update', 'update:get', 'update:check', 'app:relaunch', 'term:write', 'term:resize', 'term:kill'])
       ipcMain.removeHandler(ch)
     if (awakeId !== null) powerSaveBlocker.stop(awakeId)
     runner.dispose()

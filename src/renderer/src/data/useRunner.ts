@@ -5,7 +5,7 @@ export type Runner = {
   live: Map<string, LiveSession>
   partial: Map<string, string>
   start: (req: StartSession) => Promise<string>
-  send: (sessionId: string, text: string, images?: ImageInput[], settings?: TurnSettings) => Promise<void>
+  send: (sessionId: string, text: string, images?: ImageInput[], settings?: TurnSettings) => Promise<string | undefined>
   respond: (sessionId: string, requestId: string, decision: AskDecision, note?: string, answers?: Record<string, string>) => Promise<void>
   interrupt: (sessionId: string) => Promise<void>
   setMode: (sessionId: string, mode: RunnerMode) => Promise<void>
@@ -80,7 +80,7 @@ export function useRunner(): Runner {
     [api]
   )
   const send = useCallback(
-    (id: string, text: string, images?: ImageInput[], settings?: TurnSettings) => (api ? api.send(id, text, images, settings) : Promise.resolve()),
+    (id: string, text: string, images?: ImageInput[], settings?: TurnSettings) => (api ? api.send(id, text, images, settings) : Promise.resolve(undefined)),
     [api]
   )
   const respond = useCallback(

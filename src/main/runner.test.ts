@@ -153,3 +153,41 @@ test('editing an earlier message forks the session at that point', async () => {
   await expect(runner.start({ cwd: process.cwd(), prompt: 'x', resumeId: 'old-session', resumeAt: 'nope' })).rejects.toThrow('invalid rewind point')
   runner.dispose()
 })
+
+test('a queued message can be taken back, models come from Claude Code, files can be rewound', async () => {
+  const sdk = await import('@anthropic-ai/claude-agent-sdk')
+  const sent: { uuid?: string }[] = []
+  const cancelAsyncMessage = vi.fn(async () => true)
+  const rewindFiles = vi.fn(async () => ({ canRewind: true, filesChanged: ['/r/a.ts'], insertions: 1, deletions: 2 }))
+  const supportedModels = vi.fn(async () => [
+    { value: 'default', resolvedModel: 'claude-opus-5-5', displayName: 'Default (recommended)' },
+    { value: 'opus', resolvedModel: 'claude-opus-5-5', displayName: 'Opus 5.5' },
+    { value: 'claude-sonnet-4-6', resolvedModel: 'claude-sonnet-4-6', displayName: 'Sonnet 4.6' },
+    { value: 'weird', resolvedModel: 'not a model', displayName: 'Nope' }
+  ])
+  vi.mocked(sdk.query).mockImplementation(((args: { prompt: AsyncIterable<{ uuid?: string }> }) => {
+    void (async () => {
+      for await (const m of args.prompt) sent.push(m)
+    })()
+    return { cancelAsyncMessage, rewindFiles, supportedModels, close: vi.fn(), async *[Symbol.asyncIterator]() { await new Promise(() => {}) } }
+  }) as never)
+  const { Runner } = await import('./runner')
+  const runner = new Runner(() => {})
+  const { tempId } = await runner.start({ cwd: process.cwd(), prompt: 'first' })
+  const uuid = await runner.send(tempId, 'second')
+  await vi.waitFor(() => expect(sent.at(-1)?.uuid).toBe(uuid))
+  expect(await runner.cancelQueued(tempId, uuid)).toBe(true)
+  expect(cancelAsyncMessage).toHaveBeenCalledWith(uuid)
+  await expect(runner.cancelQueued(tempId, 'not-a-uuid')).rejects.toThrow('invalid message id')
+
+  expect(await runner.models()).toEqual([
+    { id: 'claude-opus-5-5', label: 'Opus 5.5' },
+    { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6' }
+  ])
+
+  const at = '11111111-2222-3333-4444-555555555555'
+  expect(await runner.rewindFiles(tempId, process.cwd(), at, true)).toEqual({ canRewind: true, error: undefined, filesChanged: ['/r/a.ts'], insertions: 1, deletions: 2 })
+  expect(rewindFiles).toHaveBeenCalledWith(at, { dryRun: true })
+  await expect(runner.rewindFiles(tempId, process.cwd(), 'x', true)).rejects.toThrow('invalid rewind point')
+  runner.dispose()
+})

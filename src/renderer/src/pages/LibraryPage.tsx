@@ -505,6 +505,8 @@ function Library({
   const [mcpError, setMcpError] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [uploadNote, setUploadNote] = useState<{ text: string; error: boolean } | null>(null)
+  const fileInput = useRef<HTMLInputElement>(null)
   const deleting = useRef(false)
   const mcpPending = useRef(false)
   const alive = useAlive()
@@ -607,6 +609,26 @@ function Library({
         mcpPending.current = false
       })
   }
+  const uploadKind = api && (kind === 'skills' || kind === 'agents' || kind === 'commands') ? kind : null
+  const upload = async (picked: FileList | null) => {
+    if (!api || !uploadKind || !picked?.length) return
+    setUploadNote(null)
+    try {
+      const files = await Promise.all([...picked].map(async (f) => ({ fileName: f.name, body: await f.text() })))
+      const res = await api.import(uploadKind, files)
+      if (!alive.current) return
+      const added = res.added.map(toItem)
+      if (added.length) update((s) => ({ ...s, items: [...added, ...s.items], selected: added[0]?.id ?? s.selected }))
+      const parts = [
+        res.added.length ? `Added ${res.added.length}` : '',
+        res.skipped.length ? `Skipped ${res.skipped.join(', ')} (already exists)` : '',
+        ...res.failed.map((f) => `${f.file}: ${f.reason}`)
+      ].filter(Boolean)
+      setUploadNote({ text: parts.join(' · '), error: res.failed.length > 0 })
+    } catch (err) {
+      if (alive.current) setUploadNote({ text: errorText(err), error: true })
+    }
+  }
   const startNew = kind === 'instructions' ? null : kind === 'mcp' ? (mcpMissing ? createMcp : null) : () => setCreating(true)
   const exists = (slug: string) => section.items.some((it) => it.name === slug || it.name === fileName(kind, slug))
 
@@ -640,6 +662,40 @@ function Library({
         <h1 style={{ margin: 0, fontSize: 20, fontWeight: 600, letterSpacing: '-.01em' }}>{section.title}</h1>
         {load.state === 'ready' && <span style={{ fontSize: 12.5, color: 'var(--tx3)' }}>{section.items.length}</span>}
         <span style={{ flex: 1 }} />
+        {uploadKind && (
+          <>
+            <input
+              ref={fileInput}
+              type="file"
+              multiple
+              accept=".md,text/markdown"
+              hidden
+              onChange={(e) => {
+                void upload(e.target.files)
+                e.target.value = ''
+              }}
+            />
+            <button
+              onClick={() => fileInput.current?.click()}
+              title={`Upload ${section.title.toLowerCase()} from .md files`}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                height: 30,
+                padding: '0 8px',
+                borderRadius: 7,
+                border: '1px solid var(--line)',
+                background: 'var(--panel)',
+                fontSize: 12.5,
+                fontWeight: 500
+              }}
+            >
+              <Icon name="upload" size={16} />
+              Upload
+            </button>
+          </>
+        )}
         {startNew && (
           <button
             onClick={startNew}
@@ -663,6 +719,11 @@ function Library({
         )}
       </div>
       <div style={{ padding: '0 20px 12px', fontSize: 12.5, color: 'var(--tx3)', lineHeight: 1.5 }}>{section.blurb}</div>
+      {uploadNote && (
+        <div role="status" className="selectable" style={{ padding: '0 20px 12px', fontSize: 12.5, lineHeight: 1.5, color: uploadNote.error ? 'var(--err)' : 'var(--tx2)' }}>
+          {uploadNote.text}
+        </div>
+      )}
       <div
         style={{
           flex: 1,

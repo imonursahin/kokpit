@@ -31,3 +31,7 @@ export type CreateLibraryEntry = {
   repoRoot: string | null
   args?: string
 }
+
+export type ImportFile = { fileName: string; body: string }
+
+export type ImportResult = { added: LibraryEntry[]; skipped: string[]; failed: { file: string; reason: string }[] }

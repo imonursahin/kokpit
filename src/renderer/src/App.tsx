@@ -14,13 +14,14 @@ import { LibraryPage } from '@/pages/LibraryPage'
 import { PullRequestsPage } from '@/pages/PullRequestsPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 import { McpPage } from '@/pages/McpPage'
-import { EFFORT_CHOICES, MODEL_CHOICES, type KokpitSettings } from '@shared/settings'
+import { EFFORT_CHOICES, type KokpitSettings } from '@shared/settings'
 import { isRunnerMode } from '@shared/runner'
 import { useSessions } from '@/data/useSessions'
 import { useTheme } from '@/data/theme'
 import { useRunner } from '@/data/useRunner'
 import { useConfigCounts } from '@/data/useCounts'
 import { openAboutSettings } from '@/data/useUpdate'
+import { useModels } from '@/data/useModels'
 import { NewSessionDialog } from '@/components/NewSessionDialog'
 import type { SearchResult } from '@/mock/search'
 
@@ -84,6 +85,7 @@ export function App() {
   const [libSelect, setLibSelect] = useState<{ kind: LibraryKind; path: string } | null>(null)
   const [newSession, setNewSession] = useState<{ jiraKey?: string } | null>(null)
   const runner = useRunner()
+  const models = useModels()
   const effectiveId = openId ? (runner.sessionIdFor(openId) ?? openId) : null
   const openItem = items.find((i) => i.id === effectiveId)
   const live = effectiveId ? runner.live.get(effectiveId) : undefined
@@ -312,7 +314,7 @@ export function App() {
           },
           turns: [],
           earlierCount: 0,
-          model: MODEL_CHOICES.find((m) => m.id === live?.model)?.label ?? live?.model ?? '',
+          model: models.find((m) => m.id === live?.model)?.label ?? live?.model ?? '',
           running: false,
           files: [],
           filesSource: 'none',
@@ -338,7 +340,7 @@ export function App() {
                 })
                 open(tempId)
               } else if (runner.live.has(id) || live)
-                await runner.send(live?.sessionId ?? id, text, opts?.images, { model: opts?.model, effort: opts?.effort as KokpitSettings['defaultEffort'] | undefined })
+                return runner.send(live?.sessionId ?? id, text, opts?.images, { model: opts?.model, effort: opts?.effort as KokpitSettings['defaultEffort'] | undefined })
               else
                 await runner.start({
                   cwd: openItem?.cwd ?? '',
@@ -354,12 +356,14 @@ export function App() {
             }}
             permissionMode={live?.mode ?? (isRunnerMode(openItem?.mode) ? openItem.mode : undefined)}
             onMode={live ? (m) => runner.setMode(live.sessionId, m) : undefined}
-            modelOptions={MODEL_CHOICES}
+            modelOptions={models}
             effortOptions={EFFORT_CHOICES}
             defaultEffort={settings?.defaultEffort}
             defaultMode={settings?.defaultMode}
             cwd={openItem?.cwd}
             partial={live ? runner.partial.get(live.sessionId) : undefined}
+            onCancelQueued={live ? (uuid) => window.kokpit?.runner.cancelQueued(live.sessionId, uuid) ?? Promise.resolve(false) : undefined}
+            onRewindFiles={openItem?.cwd ? (uuid, dryRun) => window.kokpit?.runner.rewindFiles(live?.sessionId ?? id, openItem.cwd, uuid, dryRun) ?? Promise.reject(new Error('Not available')) : undefined}
             onLoadEarlier={() => setTurnLimit({ id: effectiveId ?? '', n: maxTurns + 100 })}
             onAttach={() => window.kokpit?.pickFiles() ?? Promise.resolve([])}
             onRename={detail.data ? (title) => window.kokpit?.renameSession(id, title) ?? Promise.resolve() : undefined}

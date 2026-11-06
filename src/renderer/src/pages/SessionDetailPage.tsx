@@ -1,5 +1,5 @@
 import { createContext, Fragment, useCallback, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { MODE_LABELS, MODES, type AskDecision, type ImageInput, type LiveSession, type LiveState, type RunnerMode } from '@shared/runner'
+import { MODE_LABELS, MODES, type AskDecision, type ImageInput, type LiveSession, type LiveState, type RewindResult, type RunnerMode } from '@shared/runner'
 import type { SessionDetailData, SubagentDetail } from '@shared/sessionDetail'
 import type { SessionStatus } from '@shared/types'
 import { relativeTime } from '@shared/time'
@@ -714,7 +714,7 @@ function OrderedParts({ parts }: { parts: TurnPart[] }) {
   )
 }
 
-type RewindTarget = { parentUuid: string; text: string }
+type RewindTarget = { uuid?: string; parentUuid: string; text: string }
 const RewindOpen = createContext<((t: RewindTarget) => void) | null>(null)
 
 function TurnView({ turn, onLoadEarlier }: { turn: Turn; onLoadEarlier?: () => void }) {
@@ -769,7 +769,7 @@ function TurnView({ turn, onLoadEarlier }: { turn: Turn; onLoadEarlier?: () => v
         {rewind && turn.parentUuid && (
           <button
             className="turn-rewind"
-            onClick={() => rewind({ parentUuid: turn.parentUuid ?? '', text: richToText(turn.text) })}
+            onClick={() => rewind({ uuid: turn.uuid, parentUuid: turn.parentUuid ?? '', text: richToText(turn.text) })}
             title="Edit this message and continue from here in a new branch"
             style={{ position: 'absolute', left: -34, top: 6, display: 'flex', padding: 4, borderRadius: 6, cursor: 'pointer' }}
           >
@@ -1373,7 +1373,9 @@ function EmptyPanel({ text }: { text: string }) {
 
 type LiveProps = {
   live?: LiveSession
-  onSend?: (text: string, opts?: { model?: string; effort?: string; mode?: RunnerMode; images?: ImageInput[]; rewindAt?: string }) => Promise<void>
+  onSend?: (text: string, opts?: { model?: string; effort?: string; mode?: RunnerMode; images?: ImageInput[]; rewindAt?: string }) => Promise<string | void>
+  onCancelQueued?: (uuid: string) => Promise<boolean>
+  onRewindFiles?: (uuid: string, dryRun: boolean) => Promise<RewindResult>
   onMode?: (mode: RunnerMode) => Promise<void>
   permissionMode?: RunnerMode
   onStop?: () => void
@@ -1423,6 +1425,8 @@ function Detail({
   cwd,
   onLoadEarlier,
   partial,
+  onCancelQueued,
+  onRewindFiles,
   onMode,
   permissionMode
 }: { data: DetailView; onBack: () => void } & LiveProps) {
@@ -1446,7 +1450,7 @@ function Detail({
   const [planView, setPlanView] = useState<'edit' | 'preview'>('preview')
   const [planText, setPlanText] = useState(() => data.planMarkdown ?? (data.plan ? planToMarkdown(data.plan) : ''))
   const [text, setText] = useState('')
-  const [outbox, setOutbox] = useState<{ id: number; text: string; before: number }[]>([])
+  const [outbox, setOutbox] = useState<{ id: number; text: string; before: number; uuid?: string }[]>([])
   const sentTexts = useMemo(() => data.turns.flatMap((t) => (t.kind === 'user' ? [richToText(t.text)] : [])), [data.turns])
   const countSent = (t: string) => sentTexts.filter((x) => sameMessage(x, t)).length
   useEffect(() => {
@@ -1605,6 +1609,35 @@ function Detail({
     setRewindTo(t)
     setText(t.text)
   }, [])
+  const [rewindPreview, setRewindPreview] = useState<RewindResult | 'checking' | null>(null)
+  const [restoreFiles, setRestoreFiles] = useState(true)
+  const rewindFilesRef = useRef(onRewindFiles)
+  rewindFilesRef.current = onRewindFiles
+  useEffect(() => {
+    setRestoreFiles(true)
+    const check = rewindFilesRef.current
+    if (!rewindTo?.uuid || !check) return setRewindPreview(null)
+    let ok = true
+    setRewindPreview('checking')
+    check(rewindTo.uuid, true)
+      .then((r) => ok && setRewindPreview(r))
+      .catch(() => ok && setRewindPreview(null))
+    return () => {
+      ok = false
+    }
+  }, [rewindTo])
+  const restorable = rewindPreview && rewindPreview !== 'checking' && rewindPreview.canRewind ? rewindPreview.filesChanged : []
+  const cancelQueued = (m: { id: number; text: string; uuid?: string }) => {
+    if (!m.uuid || !onCancelQueued) return
+    onCancelQueued(m.uuid)
+      .then((cancelled) => {
+        if (!alive.current) return
+        if (!cancelled) return setNotice('Claude already picked up that message')
+        setOutbox((o) => o.filter((x) => x.id !== m.id))
+        setText((cur) => cur || m.text)
+      })
+      .catch((err: unknown) => alive.current && setSendError(err instanceof Error ? err.message : String(err)))
+  }
   const [shell, setShell] = useState<{ command: string; code: number | null; output: string; truncated: boolean } | 'running' | null>(null)
   const [memoryNote, setMemoryNote] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -1657,13 +1690,27 @@ function Detail({
     setText('')
     pasted.clear()
     const rewindAt = rewindTo?.parentUuid
+    const restoreAt = rewindTo?.uuid && restoreFiles && restorable.length && onRewindFiles ? rewindTo.uuid : null
+    const target = rewindTo
     setRewindTo(null)
-    onSend(t, {
-      ...(modelOptions ? { model: modelId, effort: thinking.toLowerCase(), mode } : {}),
-      ...(images.length ? { images } : {}),
-      ...(rewindAt ? { rewindAt } : {})
-    })
+    const before = restoreAt
+      ? onRewindFiles!(restoreAt, false).then((r) => {
+          if (!r.canRewind) throw new Error(r.error || 'Files could not be restored')
+        })
+      : Promise.resolve()
+    before
+      .then(() =>
+        onSend(t, {
+          ...(modelOptions ? { model: modelId, effort: thinking.toLowerCase(), mode } : {}),
+          ...(images.length ? { images } : {}),
+          ...(rewindAt ? { rewindAt } : {})
+        })
+      )
+      .then((uuid) => {
+        if (typeof uuid === 'string' && alive.current) setOutbox((o) => o.map((m) => (m.id === id ? { ...m, uuid } : m)))
+      })
       .catch((err: unknown) => {
+        if (target && alive.current) setRewindTo(target)
         if (!alive.current) return
         setOutbox((o) => o.filter((m) => m.id !== id))
         setText((cur) => cur || typed)
@@ -1910,7 +1957,15 @@ function Detail({
                 </div>
               )}
               {outbox.map((m) => (
-                <TurnView key={`out-${m.id}`} turn={{ kind: 'user', text: toRich(m.text) }} />
+                <div key={`out-${m.id}`} style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
+                  <TurnView turn={{ kind: 'user', text: toRich(m.text) }} />
+                  {running && m.uuid && onCancelQueued && (
+                    <button onClick={() => cancelQueued(m)} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11.5, color: 'var(--tx3)', cursor: 'pointer' }}>
+                      <Icon name="undo" size={14} color="var(--tx3)" />
+                      Queued · take back
+                    </button>
+                  )}
+                </div>
               ))}
               {(running || data.header.status === 'running') && !live?.pending.length && (
                 <WorkingRow
@@ -1953,8 +2008,18 @@ function Detail({
             {rewindTo && (
               <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', border: '1px solid var(--line)', borderRadius: 10, background: 'var(--wait-bg)', fontSize: 12.5 }}>
                 <Icon name="edit_note" size={16} color="var(--wait-tx)" />
-                <span style={{ flex: 1, color: 'var(--wait-tx)' }}>
-                  Editing an earlier message. Sending starts a new branch from that point, this session stays as it is. Files are not restored.
+                <span style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4, color: 'var(--wait-tx)' }}>
+                  <span>Editing an earlier message. Sending starts a new branch from that point, this session stays as it is.</span>
+                  {rewindPreview === 'checking' ? (
+                    <span style={{ color: 'var(--tx3)' }}>Checking which files changed after it…</span>
+                  ) : restorable.length ? (
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--tx)', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={restoreFiles} onChange={(e) => setRestoreFiles(e.target.checked)} />
+                      Also restore {restorable.length} file{restorable.length === 1 ? '' : 's'} to how they were before this message
+                    </label>
+                  ) : (
+                    <span style={{ color: 'var(--tx3)' }}>No tracked file changes after this message.</span>
+                  )}
                 </span>
                 <button
                   onClick={() => {

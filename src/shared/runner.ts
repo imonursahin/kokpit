@@ -6,6 +6,10 @@ export type TurnSettings = { model?: string; effort?: RunnerEffort }
 
 export type SlashCommandInfo = { name: string; description: string; argumentHint: string }
 
+export type ModelOption = { id: string; label: string }
+
+export type RewindResult = { canRewind: boolean; error?: string; filesChanged: string[]; insertions: number; deletions: number }
+
 export type RunnerMode = 'default' | 'acceptEdits' | 'plan' | 'auto' | 'bypassPermissions'
 
 export const MODE_LABELS: Record<RunnerMode, string> = {

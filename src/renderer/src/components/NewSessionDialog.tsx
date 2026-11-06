@@ -5,6 +5,7 @@ import { MODE_LABELS, MODES, type RunnerEffort, type RunnerMode } from '@shared/
 import { libraryApi } from '@/data/libraryApi'
 import { useRunner } from '@/data/useRunner'
 import { useSlashCommands } from './SlashCommands'
+import { useModels } from '@/data/useModels'
 import { useFileMentions } from './FileMentions'
 import { usePastedImages, withImageMarkers } from './PastedImages'
 import { Icon, Kbd, PrimaryButton } from './primitives'
@@ -12,12 +13,6 @@ import { Icon, Kbd, PrimaryButton } from './primitives'
 const MONO = "'Geist Mono',monospace"
 const OTHER = '__other__'
 
-const MODELS = [
-  { id: 'claude-opus-5-5', label: 'Opus 5.5' },
-  { id: 'claude-sonnet-5-5', label: 'Sonnet 5.5' },
-  { id: 'claude-haiku-5-5', label: 'Haiku 5.5' },
-  { id: 'claude-fable-5-1', label: 'Fable 5.1' }
-]
 
 const EFFORTS: RunnerEffort[] = ['low', 'medium', 'high', 'xhigh', 'max']
 
@@ -63,6 +58,7 @@ export function NewSessionDialog({
   const slash = useSlashCommands(prompt, setPrompt, 'below', repo === OTHER ? undefined : repo)
   const mention = useFileMentions(prompt, setPrompt, 'below', repo === OTHER ? undefined : repo)
   const pasted = usePastedImages()
+  const models = useModels()
   const [title, setTitle] = useState(jiraKey ? `${jiraKey} ` : '')
   const [model, setModel] = useState(defaultModel)
   const [effort, setEffort] = useState<RunnerEffort>(defaultEffort)
@@ -338,7 +334,7 @@ export function NewSessionDialog({
                 onChange={(e) => setModel(e.target.value)}
                 style={box(focus === 'model')}
               >
-                {MODELS.map((m) => (
+                {(models.some((m) => m.id === model) ? models : [{ id: model, label: model }, ...models]).map((m) => (
                   <option key={m.id} value={m.id}>
                     {m.label}
                   </option>

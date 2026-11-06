@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { registerIpc } from './ipc'
 import { focusAndNavigate, KokpitTray } from './tray'
 import { loadLoginPath } from './shellEnv'
+import { lockNavigation } from './navigation'
 
 let main: BrowserWindow | null = null
 
@@ -48,11 +49,6 @@ function createWindow(): BrowserWindow {
     })
   }
 
-  win.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith('https://')) void shell.openExternal(url)
-    return { action: 'deny' }
-  })
-
   loadRenderer(win)
   main = win
   return win
@@ -67,6 +63,8 @@ function loadRenderer(win: BrowserWindow, hash?: string): void {
     void win.loadFile(join(import.meta.dirname, '../renderer/index.html'), hash ? { hash } : undefined)
   }
 }
+
+app.on('web-contents-created', (_e, contents) => lockNavigation(contents, (url) => shell.openExternal(url)))
 
 void app.whenReady().then(async () => {
   if (process.platform === 'darwin' && !app.isPackaged) app.dock?.setIcon(join(app.getAppPath(), 'build', 'icon.png'))

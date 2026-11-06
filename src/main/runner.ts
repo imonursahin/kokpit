@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync, statSync } from 'node:fs'
+import { homedir } from 'node:os'
 import {
   query,
   renameSession,
@@ -9,7 +10,7 @@ import {
   type SDKMessage,
   type SDKUserMessage
 } from '@anthropic-ai/claude-agent-sdk'
-import { EFFORTS, IMAGE_TYPES, isRunnerMode, type AskDecision, type ImageInput, type LiveSession, type PendingAsk, type RunnerEvent, type SlashCommandInfo, type StartSession, type TurnSettings } from '../shared/runner'
+import { EFFORTS, IMAGE_TYPES, isRunnerMode, type AskDecision, type ImageInput, type LiveSession, type PendingAsk, type RunnerEvent, type ModelOption, type RewindResult, type SlashCommandInfo, type StartSession, type TurnSettings } from '../shared/runner'
 import { memoryDir } from './assistant'
 
 class InputQueue implements AsyncIterable<SDKUserMessage> {
@@ -17,7 +18,8 @@ class InputQueue implements AsyncIterable<SDKUserMessage> {
   private waiters: ((r: IteratorResult<SDKUserMessage>) => void)[] = []
   private closed = false
 
-  push(text: string, images: ImageInput[] = []): void {
+  push(text: string, images: ImageInput[] = []): string {
+    const uuid = randomUUID()
     const content = images.length
       ? [
           ...images.map((i) => ({ type: 'image' as const, source: { type: 'base64' as const, media_type: i.mediaType, data: i.data } })),
@@ -28,11 +30,13 @@ class InputQueue implements AsyncIterable<SDKUserMessage> {
       type: 'user',
       message: { role: 'user', content },
       parent_tool_use_id: null,
-      origin: { kind: 'human' }
+      origin: { kind: 'human' },
+      uuid: uuid as SDKUserMessage['uuid']
     }
     const waiter = this.waiters.shift()
     if (waiter) waiter({ value: msg, done: false })
     else this.items.push(msg)
+    return uuid
   }
 
   close(): void {
@@ -136,6 +140,8 @@ function describe(toolName: string, input: Record<string, unknown>): { title: st
 }
 
 const COMMANDS_TTL_MS = 10 * 60_000
+const MODELS_TTL_MS = 30 * 60_000
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 type StreamEvent = {
   type: string
@@ -146,6 +152,7 @@ type StreamEvent = {
 export class Runner {
   private live = new Map<string, Live>()
   private commandCache = new Map<string, { at: number; list: Promise<SlashCommandInfo[]> }>()
+  private modelCache: { at: number; list: Promise<ModelOption[]> } | null = null
   private alias = new Map<string, string>()
 
   private find(id: string): Live | undefined {
@@ -212,6 +219,7 @@ export class Runner {
         ...(req.resumeAt ? { forkSession: true, resumeSessionAt: req.resumeAt } : {}),
         settingSources: ['user', 'project', 'local'],
         includePartialMessages: true,
+        enableFileCheckpointing: true,
         pathToClaudeCodeExecutable: this.executable(),
         plugins: kokpit ? [{ type: 'local', path: kokpit.home }] : undefined,
         // The autoMemoryDirectory setting is dropped for SDK-launched sessions; this undocumented override is what the CLI honors (checked on 2.1.318).
@@ -363,7 +371,7 @@ export class Runner {
     }
   }
 
-  async send(sessionId: unknown, text: unknown, images?: unknown, settings?: unknown): Promise<void> {
+  async send(sessionId: unknown, text: unknown, images?: unknown, settings?: unknown): Promise<string> {
     const pics = imageInputs(images)
     if (typeof sessionId !== 'string' || typeof text !== 'string' || (!text.trim() && !pics.length)) throw new Error('invalid message')
     const l = this.find(sessionId)
@@ -377,9 +385,48 @@ export class Runner {
       await l.q.applyFlagSettings({ effortLevel: s.effort })
       l.effort = s.effort
     }
-    l.input.push(text, pics)
+    const uuid = l.input.push(text, pics)
     l.info.state = 'running'
     this.publish(l)
+    return uuid
+  }
+
+  async cancelQueued(sessionId: unknown, uuid: unknown): Promise<boolean> {
+    if (typeof sessionId !== 'string' || typeof uuid !== 'string' || !UUID.test(uuid)) throw new Error('invalid message id')
+    const l = this.find(sessionId)
+    if (!l) return false
+    const q = l.q as unknown as { cancelAsyncMessage?: (id: string) => Promise<boolean> }
+    return q.cancelAsyncMessage ? q.cancelAsyncMessage(uuid) : false
+  }
+
+  models(): Promise<ModelOption[]> {
+    if (this.modelCache && Date.now() - this.modelCache.at < MODELS_TTL_MS) return this.modelCache.list
+    const list = this.withQuery(homedir(), async (q) => {
+      const seen = new Set<string>()
+      return (await q.supportedModels()).flatMap((m) => {
+        const id = m.resolvedModel ?? m.value
+        if (m.value === 'default' || !/^claude-[a-z0-9.-]+$/.test(id) || seen.has(id)) return []
+        seen.add(id)
+        return [{ id, label: m.displayName }]
+      })
+    }).catch((err: Error) => {
+      this.modelCache = null
+      this.log(`model list: ${err.message}`)
+      return []
+    })
+    this.modelCache = { at: Date.now(), list }
+    return list
+  }
+
+  async rewindFiles(sessionId: unknown, cwd: unknown, userUuid: unknown, dryRun: unknown): Promise<RewindResult> {
+    if (typeof sessionId !== 'string' || typeof userUuid !== 'string' || !UUID.test(userUuid)) throw new Error('invalid rewind point')
+    if (typeof cwd !== 'string' || !cwd.startsWith('/') || !existsSync(cwd)) throw new Error('Folder not found')
+    const run = async (q: Query): Promise<RewindResult> => {
+      const r = await q.rewindFiles(userUuid, { dryRun: dryRun === true })
+      return { canRewind: r.canRewind, error: r.error, filesChanged: r.filesChanged ?? [], insertions: r.insertions ?? 0, deletions: r.deletions ?? 0 }
+    }
+    const l = this.find(sessionId)
+    return l ? run(l.q) : this.withQuery(cwd, run, { resume: sessionId, enableFileCheckpointing: true })
   }
 
   commands(cwd: unknown): Promise<SlashCommandInfo[]> {
@@ -395,32 +442,34 @@ export class Runner {
     return list
   }
 
-  private async loadCommands(cwd: string): Promise<SlashCommandInfo[]> {
-    const live = [...this.live.values()].find((l) => l.info.cwd === cwd)
-    let q: Query | null = live?.q ?? null
-    const own = !q
-    if (!q) {
-      const kokpit = await this.assistant()
-      const idle: AsyncIterable<SDKUserMessage> = { [Symbol.asyncIterator]: () => ({ next: () => new Promise<IteratorResult<SDKUserMessage>>(() => {}) }) }
-      q = query({
-        prompt: idle,
-        options: {
-          cwd,
-          settingSources: ['user', 'project', 'local'],
-          pathToClaudeCodeExecutable: this.executable(),
-          plugins: kokpit ? [{ type: 'local', path: kokpit.home }] : undefined
-        }
-      })
-    }
+  private async withQuery<T>(cwd: string, fn: (q: Query) => Promise<T>, extra: Record<string, unknown> = {}): Promise<T> {
+    const kokpit = await this.assistant()
+    const idle: AsyncIterable<SDKUserMessage> = { [Symbol.asyncIterator]: () => ({ next: () => new Promise<IteratorResult<SDKUserMessage>>(() => {}) }) }
+    const q = query({
+      prompt: idle,
+      options: {
+        cwd,
+        settingSources: ['user', 'project', 'local'],
+        pathToClaudeCodeExecutable: this.executable(),
+        plugins: kokpit ? [{ type: 'local', path: kokpit.home }] : undefined,
+        ...extra
+      }
+    })
     try {
-      const timeout = new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timed out')), 20_000))
-      const raw = await Promise.race([q.supportedCommands(), timeout])
-      return raw
+      const timeout = new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timed out')), 30_000))
+      return await Promise.race([fn(q), timeout])
+    } finally {
+      q.close?.()
+    }
+  }
+
+  private async loadCommands(cwd: string): Promise<SlashCommandInfo[]> {
+    const list = async (q: Query) =>
+      (await q.supportedCommands())
         .map((c) => ({ name: c.name, description: c.description ?? '', argumentHint: c.argumentHint ?? '' }))
         .sort((a, b) => a.name.localeCompare(b.name))
-    } finally {
-      if (own) q.close?.()
-    }
+    const live = [...this.live.values()].find((l) => l.info.cwd === cwd)
+    return live ? list(live.q) : this.withQuery(cwd, list)
   }
 
   async setMode(sessionId: unknown, mode: unknown): Promise<void> {

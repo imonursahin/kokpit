@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
-import type { CreateLibraryEntry, LibraryEntry, LibraryListing } from '../shared/library'
+import type { CreateLibraryEntry, ImportFile, ImportResult, LibraryEntry, LibraryListing } from '../shared/library'
 import type { ConnectionId, ConnectionInfo, GithubConnectInput, JiraConnectInput, JiraIssue, MyPullRequests, PullRequestInfo } from '../shared/integrations'
-import type { AskDecision, ImageInput, LiveSession, RunnerEvent, RunnerMode, SlashCommandInfo, StartSession, TurnSettings } from '../shared/runner'
+import type { AskDecision, ImageInput, LiveSession, RunnerEvent, RunnerMode, ModelOption, RewindResult, SlashCommandInfo, StartSession, TurnSettings } from '../shared/runner'
 import type { SearchResponse } from '../shared/search'
 import type { AppInfo, DoctorCheck, KokpitSettings, PlanUsage, UpdateStatus } from '../shared/settings'
 import type { TrayState, TrayTarget } from '../shared/tray'
@@ -85,12 +85,16 @@ const api = {
   runner: {
     list: (): Promise<LiveSession[]> => ipcRenderer.invoke('runner:list'),
     start: (req: StartSession): Promise<{ tempId: string }> => ipcRenderer.invoke('runner:start', req),
-    send: (sessionId: string, text: string, images?: ImageInput[], settings?: TurnSettings): Promise<void> =>
+    send: (sessionId: string, text: string, images?: ImageInput[], settings?: TurnSettings): Promise<string> =>
       ipcRenderer.invoke('runner:send', sessionId, text, images, settings),
     respond: (sessionId: string, requestId: string, decision: AskDecision, note?: string, answers?: Record<string, string>): Promise<void> =>
       ipcRenderer.invoke('runner:respond', sessionId, requestId, decision, note, answers),
     interrupt: (sessionId: string): Promise<void> => ipcRenderer.invoke('runner:interrupt', sessionId),
     commands: (cwd: string): Promise<SlashCommandInfo[]> => ipcRenderer.invoke('runner:commands', cwd),
+    models: (): Promise<ModelOption[]> => ipcRenderer.invoke('runner:models'),
+    cancelQueued: (sessionId: string, uuid: string): Promise<boolean> => ipcRenderer.invoke('runner:cancelQueued', sessionId, uuid),
+    rewindFiles: (sessionId: string, cwd: string, uuid: string, dryRun: boolean): Promise<RewindResult> =>
+      ipcRenderer.invoke('runner:rewindFiles', sessionId, cwd, uuid, dryRun),
     setMode: (sessionId: string, mode: RunnerMode): Promise<void> => ipcRenderer.invoke('runner:setMode', sessionId, mode),
     onEvent: (cb: (e: RunnerEvent) => void): (() => void) => {
       const handler = (_e: IpcRendererEvent, ev: RunnerEvent) => cb(ev)
@@ -115,7 +119,8 @@ const api = {
     list: (): Promise<LibraryListing> => ipcRenderer.invoke('library:list'),
     save: (absPath: string, body: string): Promise<LibraryEntry> => ipcRenderer.invoke('library:save', absPath, body),
     create: (input: CreateLibraryEntry): Promise<LibraryEntry> => ipcRenderer.invoke('library:create', input),
-    remove: (absPath: string): Promise<void> => ipcRenderer.invoke('library:delete', absPath)
+    remove: (absPath: string): Promise<void> => ipcRenderer.invoke('library:delete', absPath),
+    import: (kind: 'skills' | 'agents' | 'commands', files: ImportFile[]): Promise<ImportResult> => ipcRenderer.invoke('library:import', kind, files)
   },
   onSessionsChanged: (cb: (items: SessionIndexItem[]) => void): (() => void) => {
     const handler = (_e: IpcRendererEvent, items: SessionIndexItem[]) => cb(items)

@@ -1,10 +1,11 @@
-import type { CreateLibraryEntry, LibraryEntry, LibraryListing } from '@shared/library'
+import type { CreateLibraryEntry, ImportFile, ImportResult, LibraryEntry, LibraryListing } from '@shared/library'
 
 export type LibraryApi = {
   list(): Promise<LibraryListing>
   save(absPath: string, body: string): Promise<LibraryEntry>
   create(input: CreateLibraryEntry): Promise<LibraryEntry>
   remove(absPath: string): Promise<void>
+  import(kind: 'skills' | 'agents' | 'commands', files: ImportFile[]): Promise<ImportResult>
 }
 
 export function libraryApi(): LibraryApi | null {

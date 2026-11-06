@@ -3,7 +3,6 @@ import {
   DEFAULT_SETTINGS,
   EFFORT_CHOICES,
   GITHUB_REFRESH_CHOICES,
-  MODEL_CHOICES,
   NOTIFY_EVENTS,
   type AppInfo,
   type DoctorCheck,
@@ -16,6 +15,7 @@ import { Icon, Spinner } from '@/components/primitives'
 import { Markdown } from '@/components/Markdown'
 import { TerminalModal } from '@/components/TerminalModal'
 import { useUpdate } from '@/data/useUpdate'
+import { useModels } from '@/data/useModels'
 
 const MONO = "'Geist Mono',monospace"
 
@@ -357,6 +357,7 @@ export function SettingsPage({
   settings: KokpitSettings | null
   onSettings: (patch: Partial<KokpitSettings>) => Promise<void>
 }) {
+  const models = useModels()
   const api = window.kokpit
   const [section, setSection] = useState<SectionId>(initialSection)
   const [info, setInfo] = useState<AppInfo | null>(null)
@@ -492,11 +493,18 @@ export function SettingsPage({
               <>
                 <Group title="New sessions">
                   <Row label="Model" hint="Used by the new session dialog and when you continue a session">
-                    <Segmented
+                    <select
+                      aria-label="Default model"
                       value={settings?.defaultModel ?? 'claude-opus-5-5'}
-                      onChange={(v) => void save({ defaultModel: v })}
-                      options={MODEL_CHOICES.map((m) => ({ id: m.id, label: m.label }))}
-                    />
+                      onChange={(e) => void save({ defaultModel: e.target.value })}
+                      style={{ height: 32, padding: '0 8px', borderRadius: 7, border: '1px solid var(--line)', background: 'var(--panel)', color: 'var(--tx)', font: 'inherit', fontSize: 13 }}
+                    >
+                      {models.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.label}
+                        </option>
+                      ))}
+                    </select>
                   </Row>
                   <Row label="Effort" hint="Higher effort thinks longer and costs more">
                     <Segmented

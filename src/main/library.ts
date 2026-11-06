@@ -2,13 +2,14 @@ import { existsSync } from 'node:fs'
 import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, extname, join, resolve, sep } from 'node:path'
-import type { CreateLibraryEntry, LibraryEntry, LibraryFormat, LibraryKind, LibraryListing } from '../shared/library'
+import type { CreateLibraryEntry, ImportResult, LibraryEntry, LibraryFormat, LibraryKind, LibraryListing } from '../shared/library'
 
 const HOME = homedir()
 const MAX_BODY = 512 * 1024
 const NAME = /^[a-z0-9][a-z0-9-]{0,63}$/
 const SCRIPT_EXT = new Set(['.py', '.sh', '.js', '.mjs', '.ts', '.rb'])
 const MEMORY_INDEX = 'MEMORY.md'
+const MAX_IMPORT = 50
 const MCP_FILE = '.mcp.json'
 
 type Source = { kind: LibraryKind; absPath: string; name: string }
@@ -197,6 +198,39 @@ export class Library {
       const after = dropIndexLines(before, basename(target))
       if (after !== before) await writeFile(index, after, 'utf8')
     }
+  }
+
+  async import(kind: unknown, files: unknown, uses: Record<string, number>): Promise<ImportResult> {
+    if (!this.home) throw new Error('Library is not loaded yet')
+    if (kind !== 'skills' && kind !== 'agents' && kind !== 'commands') throw new Error('Only skills, agents and commands can be uploaded')
+    if (!Array.isArray(files) || !files.length || files.length > MAX_IMPORT) throw new Error(`Pick between 1 and ${MAX_IMPORT} files`)
+    const result: ImportResult = { added: [], skipped: [], failed: [] }
+    for (const f of files as unknown[]) {
+      const { fileName, body } = (f ?? {}) as { fileName?: unknown; body?: unknown }
+      const file = typeof fileName === 'string' ? basename(fileName) : ''
+      try {
+        if (!file.toLowerCase().endsWith('.md') || typeof body !== 'string') throw new Error('Not a markdown file')
+        if (Buffer.byteLength(body) > MAX_BODY) throw new Error('File is too large')
+        const stem = basename(file, extname(file)).toLowerCase()
+        const name = (kind === 'commands' ? stem : frontmatter(body)['name'] || (stem === 'skill' ? '' : stem)).toLowerCase()
+        if (!NAME.test(name))
+          throw new Error(kind === 'commands' ? 'File name must be lowercase letters, digits and dashes' : 'Add a name: line to the frontmatter (lowercase letters, digits and dashes)')
+        const target = kind === 'skills' ? join(this.home, 'skills', name, 'SKILL.md') : join(this.home, kind, `${name}.md`)
+        if (existsSync(target)) {
+          result.skipped.push(file)
+          continue
+        }
+        await mkdir(dirname(target), { recursive: true })
+        await writeFile(target, body.endsWith('\n') ? body : `${body}\n`, { encoding: 'utf8', flag: 'wx' })
+        this.known.add(target)
+        const entry = await this.entryFor(target, uses)
+        if (entry) result.added.push(entry)
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === 'EEXIST') result.skipped.push(file)
+        else result.failed.push({ file: file || 'unnamed', reason: (err as Error).message })
+      }
+    }
+    return result
   }
 
   async create(input: CreateLibraryEntry, uses: Record<string, number>): Promise<LibraryEntry> {
