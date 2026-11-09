@@ -16,3 +16,19 @@ test('the update never stops to ask and never quits the running app', async () =
   expect(cmd.at(-1)).toContain('HOMEBREW_NO_ASK=1')
   expect(cmd.at(-1)).toContain('HOMEBREW_NO_UPGRADE_QUIT_CASKS=1')
 })
+
+test('when several releases were skipped, the notes cover every one of them, newest first', async () => {
+  const { newerReleases } = await import('./updates')
+  const releases = [
+    { tag_name: 'v0.1.13', body: '**Added**\n- Right-click menu' },
+    { tag_name: 'v0.1.15', body: '', draft: true },
+    { tag_name: 'v0.1.14', body: '**Added**\n- Session tags' },
+    { tag_name: 'v0.1.12', body: '**Fixed**\n- Old' }
+  ]
+  const two = newerReleases(releases, '0.1.12')
+  expect(two.latest?.tag_name).toBe('v0.1.14')
+  expect(two.versions).toEqual(['0.1.14', '0.1.13'])
+  expect(two.notes).toBe('### 0.1.14\n\n**Added**\n- Session tags\n\n### 0.1.13\n\n**Added**\n- Right-click menu')
+  expect(newerReleases(releases, '0.1.13').notes).toBe('**Added**\n- Session tags')
+  expect(newerReleases(releases, '0.1.14')).toMatchObject({ versions: [], notes: '**Added**\n- Session tags' })
+})

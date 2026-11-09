@@ -83,6 +83,7 @@ export type UpdateStatus = {
   latest?: string
   url?: string
   notes?: string
+  newVersions?: string[]
   publishedAt?: string
   checkedAt: string
   hasUpdate: boolean

@@ -378,7 +378,7 @@ function Updates({ version, packaged }: { version: string; packaged: boolean }) 
         )}
       </Group>
       {status?.hasUpdate && status.notes && (
-        <Group title={`What’s new in ${status.latest}`}>
+        <Group title={(status.newVersions?.length ?? 0) > 1 ? `What’s new since ${status.current} · ${status.newVersions?.length} releases` : `What’s new in ${status.latest}`}>
           <div style={{ padding: '14px 0' }}>
             <Markdown source={status.notes} size={13} />
           </div>
