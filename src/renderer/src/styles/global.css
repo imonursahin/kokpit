@@ -165,7 +165,11 @@ body {
 .no-drag,
 .drag button,
 .drag input,
-.drag a { -webkit-app-region: no-drag }
+.drag a,
+.drag [role='button'],
+.drag [role='link'],
+.drag [role='tooltip'],
+.drag [role='menu'] { -webkit-app-region: no-drag }
 
 button {
   font: inherit;

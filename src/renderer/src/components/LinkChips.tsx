@@ -85,6 +85,7 @@ export function JiraChip({ jiraKey }: { jiraKey: string }) {
   const issue = data.state === 'ready' ? data.data : null
   return (
     <span
+      className="no-drag"
       style={{ position: 'relative', display: 'inline-flex' }}
       onMouseEnter={() => show()}
       onMouseLeave={hide}
@@ -155,6 +156,7 @@ export function PrChip({ label, url, jiraKey, align }: { label: string; url: str
   const many = data.state === 'ready' && data.data.length > 1
   return (
     <span
+      className="no-drag"
       style={{ position: 'relative', display: 'inline-flex' }}
       onMouseEnter={() => show()}
       onMouseLeave={hide}
