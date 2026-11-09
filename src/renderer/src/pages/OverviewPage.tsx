@@ -34,7 +34,7 @@ function lastSevenDays(items: SessionIndexItem[], nowMs: number): Day[] {
   return days
 }
 
-function Section({ title, count, action, children }: { title: string; count?: number; action?: ReactNode; children: ReactNode }) {
+function Section({ title, count, action, children }: { title: ReactNode; count?: number; action?: ReactNode; children: ReactNode }) {
   return (
     <section style={{ display: 'flex', flexDirection: 'column' }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, padding: '22px 28px 10px' }}>
@@ -45,6 +45,43 @@ function Section({ title, count, action, children }: { title: string; count?: nu
       </div>
       {children}
     </section>
+  )
+}
+
+type NowTab = 'running' | 'unread'
+
+const NOW_TABS: { id: NowTab; label: string; empty: string }[] = [
+  { id: 'running', label: 'Running now', empty: 'Nothing is running.' },
+  { id: 'unread', label: 'Unread', empty: 'You opened every finished session.' }
+]
+
+function NowTabs({ tab, counts, onTab }: { tab: NowTab; counts: Record<NowTab, number>; onTab: (t: NowTab) => void }) {
+  return (
+    <span role="tablist" style={{ display: 'inline-flex', alignItems: 'center', gap: 2, padding: 2, background: 'var(--hover)', borderRadius: 8, fontSize: 12.5, fontWeight: 400, color: 'var(--tx2)' }}>
+      {NOW_TABS.map((t) => {
+        const on = tab === t.id
+        return (
+          <button
+            key={t.id}
+            role="tab"
+            aria-selected={on}
+            onClick={() => onTab(t.id)}
+            style={{
+              height: 26,
+              padding: '0 10px',
+              borderRadius: 6,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              ...(on ? { background: 'var(--panel)', boxShadow: '0 0 0 1px var(--line)', fontWeight: 500, color: 'var(--tx)' } : {})
+            }}
+          >
+            {t.label}
+            <span style={{ color: 'var(--tx3)', fontWeight: 400 }}>{counts[t.id]}</span>
+          </button>
+        )
+      })}
+    </span>
   )
 }
 
@@ -284,6 +321,10 @@ export function OverviewPage({
 
   const waiting = sessions.filter((s) => s.status === 'waiting')
   const running = sessions.filter((s) => s.status === 'running')
+  const unread = sessions.filter((s) => s.unread && s.status === 'done')
+  const [nowTab, setNowTab] = useState<NowTab | null>(null)
+  const nowLists: Record<NowTab, SessionSummary[]> = { running: [...waiting, ...running], unread }
+  const activeNow: NowTab = nowTab ?? (waiting.length + running.length ? 'running' : 'unread')
   const recent = sessions.filter((s) => s.status !== 'waiting' && s.status !== 'running').slice(0, 5)
 
   const shown = useMemo(() => {
@@ -338,22 +379,14 @@ export function OverviewPage({
       </div>
 
 
-      {waiting.length > 0 && (
-        <Section title="Waiting for you" count={waiting.length}>
-          <div style={{ borderTop: '1px solid var(--line)' }}>
-            {waiting.map((s) => (
-              <SessionRow key={s.id} s={s} onOpen={() => onOpen(s.id)} onAllow={() => onAllow(s.id)} />
-            ))}
-          </div>
-        </Section>
-      )}
-
-      {running.length > 0 && (
-        <Section title="Running now" count={running.length}>
-          <div style={{ borderTop: '1px solid var(--line)' }}>
-            {running.map((s) => (
-              <SessionRow key={s.id} s={s} onOpen={() => onOpen(s.id)} onAllow={() => onAllow(s.id)} />
-            ))}
+      {waiting.length + running.length + unread.length > 0 && (
+        <Section title={<NowTabs tab={activeNow} counts={{ running: waiting.length + running.length, unread: unread.length }} onTab={setNowTab} />}>
+          <div role="tabpanel" style={{ borderTop: '1px solid var(--line)' }}>
+            {nowLists[activeNow].length ? (
+              nowLists[activeNow].map((s) => <SessionRow key={s.id} s={s} onOpen={() => onOpen(s.id)} onAllow={() => onAllow(s.id)} />)
+            ) : (
+              <Empty>{NOW_TABS.find((t) => t.id === activeNow)?.empty}</Empty>
+            )}
           </div>
         </Section>
       )}
