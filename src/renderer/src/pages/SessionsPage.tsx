@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { SessionStatus, SessionSummary } from '@shared/types'
 import { SESSION_COLS, SessionRow } from '@/components/SessionRow'
 import { SelectChip } from '@/components/Menu'
@@ -77,6 +77,34 @@ function CenterState({ children }: { children: React.ReactNode }) {
 
 const RECENT_DAYS = 14
 
+export function movePin(order: string[], id: string, target: string): string[] {
+  const from = order.indexOf(id)
+  const to = order.indexOf(target)
+  if (from < 0 || to < 0 || from === to) return order
+  const next = order.filter((x) => x !== id)
+  next.splice(next.indexOf(target) + (from < to ? 1 : 0), 0, id)
+  return next
+}
+
+function GroupLabel({ children, first }: { children: ReactNode; first?: boolean }) {
+  return (
+    <div
+      style={{
+        flexShrink: 0,
+        padding: first ? '12px 28px 6px' : '18px 28px 6px',
+        borderTop: first ? undefined : '1px solid var(--line)',
+        fontSize: 11,
+        fontWeight: 600,
+        letterSpacing: '.04em',
+        textTransform: 'uppercase',
+        color: 'var(--tx3)'
+      }}
+    >
+      {children}
+    </div>
+  )
+}
+
 export function SessionsPage({
   sessions,
   state,
@@ -86,6 +114,8 @@ export function SessionsPage({
   onAllow,
   onArchive,
   onPin,
+  pinOrder = [],
+  onReorderPins,
   onNew,
   onPickJira,
   onRetry,
@@ -99,6 +129,8 @@ export function SessionsPage({
   onAllow: (id: string) => void
   onArchive: (id: string) => void
   onPin: (id: string) => void
+  pinOrder?: string[]
+  onReorderPins?: (ids: string[]) => void
   onNew: () => void
   onPickJira: () => void
   onRetry: () => void
@@ -137,8 +169,14 @@ export function SessionsPage({
           (!jira || s.jira === jira) &&
           (!q || s.title.toLowerCase().includes(q))
       )
-      .sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned))
-  }, [sessions, scoped, tab, jira, query])
+      .sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned) || (a.pinned && b.pinned ? pinOrder.indexOf(a.id) - pinOrder.indexOf(b.id) : 0))
+  }, [sessions, scoped, tab, jira, query, pinOrder])
+  const [drag, setDrag] = useState<{ id: string; over?: string } | null>(null)
+  const dropPin = (target: string) => {
+    if (!drag || drag.id === target || !onReorderPins) return setDrag(null)
+    onReorderPins(movePin(rows.filter((r) => r.pinned).map((r) => r.id), drag.id, target))
+    setDrag(null)
+  }
 
   const selected = rows.find((r) => r.id === selectedId) ?? null
 
@@ -357,15 +395,41 @@ export function SessionsPage({
 
       <div ref={listRef} style={{ flex: 1, minHeight: 0, overflow: isList ? 'auto' : 'hidden', display: 'flex', flexDirection: 'column' }}>
         {isList &&
-          rows.map((s) => (
-            <SessionRow
-              key={s.id}
-              s={s}
-              selected={s.id === selectedId}
-              onOpen={() => onOpen(s.id)}
-              onAllow={() => onAllow(s.id)}
-              onPin={() => onPin(s.id)}
-            />
+          rows.map((s, i) => (
+            <Fragment key={s.id}>
+              {i === 0 && s.pinned && <GroupLabel first>Pinned</GroupLabel>}
+              {!s.pinned && rows[i - 1]?.pinned && <GroupLabel>Others</GroupLabel>}
+              <div
+                draggable={!!s.pinned && !!onReorderPins}
+                onDragStart={(e) => {
+                  e.dataTransfer.effectAllowed = 'move'
+                  setDrag({ id: s.id })
+                }}
+                onDragOver={(e) => {
+                  if (!drag || !s.pinned) return
+                  e.preventDefault()
+                  if (drag.over !== s.id) setDrag({ ...drag, over: s.id })
+                }}
+                onDrop={(e) => {
+                  e.preventDefault()
+                  dropPin(s.id)
+                }}
+                onDragEnd={() => setDrag(null)}
+                style={{
+                  flexShrink: 0,
+                  opacity: drag?.id === s.id ? 0.5 : 1,
+                  boxShadow: drag?.over === s.id && drag.id !== s.id ? `inset 0 ${rows.findIndex((r) => r.id === drag.id) < i ? -2 : 2}px 0 var(--tx)` : undefined
+                }}
+              >
+                <SessionRow
+                  s={s}
+                  selected={s.id === selectedId}
+                  onOpen={() => onOpen(s.id)}
+                  onAllow={() => onAllow(s.id)}
+                  onPin={() => onPin(s.id)}
+                />
+              </div>
+            </Fragment>
           ))}
 
         {isList && olderCount > 0 && (

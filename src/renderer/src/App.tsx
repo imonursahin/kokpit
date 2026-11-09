@@ -196,6 +196,14 @@ export function App() {
       }),
     []
   )
+  const reorderPins = useCallback((ids: string[]) => {
+    setPinned((prev) => {
+      const next = new Set([...ids.filter((id) => prev.has(id)), ...prev])
+      localStorage.setItem('kokpit.pinned', JSON.stringify([...next]))
+      return next
+    })
+  }, [])
+  const pinOrder = useMemo(() => [...pinned], [pinned])
   const archive = useCallback(
     (id: string) =>
       setArchived((prev) => {
@@ -251,6 +259,8 @@ export function App() {
           }}
           onArchive={archive}
           onPin={togglePin}
+          pinOrder={pinOrder}
+          onReorderPins={reorderPins}
           onNew={() => setNewSession({})}
           onPickJira={() => setPage('jira')}
           onRetry={retry}
