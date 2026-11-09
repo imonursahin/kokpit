@@ -1,11 +1,11 @@
 import { execFile } from 'node:child_process'
 import { createReadStream } from 'node:fs'
-import { readdir, readFile, stat } from 'node:fs/promises'
-import { join } from 'node:path'
+import { open, readdir, readFile, stat } from 'node:fs/promises'
+import { basename, dirname, join } from 'node:path'
 import { createInterface } from 'node:readline'
 import { promisify } from 'node:util'
 import type { SessionIndexItem } from '../../shared/sessionIndex'
-import type { DetailFile, DetailStep, DetailStepKind, DetailTurn, SessionDetailData, SubagentDetail } from '../../shared/sessionDetail'
+import type { DetailFile, DetailStep, DetailStepKind, DetailTurn, SessionDetailData, SubagentDetail, WorkflowRun, WorkflowStep } from '../../shared/sessionDetail'
 import { editAsDiff, isTestPath, lineCount, parseUnifiedDiff } from './diff'
 import { contextTokens, contextWindow, costOf, type Usage } from './pricing'
 import { gitRoot } from './repo'
@@ -173,6 +173,7 @@ export function agentReport(prompt: string): { id: string; text: string } | null
 type AgentMeta = { id: string; type: string; description: string; finished: boolean; toolUseId: string; active: boolean }
 
 const AGENT_ID = /^[A-Za-z0-9_-]{1,64}$/
+const WORKFLOW_RUN = /^wf_[A-Za-z0-9-]{1,64}$/
 const AGENT_ACTIVE_MS = 10 * 60_000
 
 function subagentDir(sessionFile: string): string {
@@ -346,6 +347,12 @@ export async function buildDetail(item: SessionIndexItem, nowMs = Date.now(), op
   let lastUserAt = ''
   const reports = new Map<string, string>()
   const background = new Set<string>()
+  const finishBackground = (done: { toolUseId: string; status: string }) => {
+    const step = steps.get(done.toolUseId)
+    if (!step || !background.has(done.toolUseId)) return
+    step.state = done.status === 'completed' ? 'done' : 'error'
+    step.meta = done.status === 'completed' ? 'finished in background' : done.status
+  }
   let lastContext = 0
   const rl = createInterface({ input: createReadStream(item.file, { encoding: 'utf8' }), crlfDelay: Infinity })
   for await (const raw of rl) {
@@ -387,6 +394,11 @@ export async function buildDetail(item: SessionIndexItem, nowMs = Date.now(), op
           const isError = b['is_error'] === true
           step.state = isError ? 'error' : 'done'
           step.meta = resultMeta(step, text, isError)
+          const launched = isObj(o['toolUseResult']) ? o['toolUseResult'] : {}
+          if (!isError && launched['status'] === 'async_launched') background.add(str(b['tool_use_id']))
+          const taskId = str(launched['taskId']) || str(launched['backgroundTaskId'])
+          if (!isError && taskId) step.taskId = taskId
+          if (!isError && WORKFLOW_RUN.test(str(launched['runId']))) step.workflow = { runId: str(launched['runId']), name: str(launched['workflowName']) }
           if (!isError && background.has(str(b['tool_use_id']))) {
             step.state = 'running'
             step.meta = 'in background'
@@ -395,6 +407,11 @@ export async function buildDetail(item: SessionIndexItem, nowMs = Date.now(), op
         }
       }
       const prompt = promptOf(content)
+      const finished = taskNotification(prompt)
+      if (finished) {
+        finishBackground(finished)
+        continue
+      }
       const command = commandPrompt(prompt)
       if (command) {
         closeTurn()
@@ -435,11 +452,7 @@ export async function buildDetail(item: SessionIndexItem, nowMs = Date.now(), op
       }
       const done = taskNotification(prompt)
       if (done) {
-        const step = steps.get(done.toolUseId)
-        if (step && background.has(done.toolUseId)) {
-          step.state = done.status === 'completed' ? 'done' : 'error'
-          step.meta = done.status === 'completed' ? 'finished in background' : done.status
-        }
+        finishBackground(done)
         continue
       }
       if (att['humanTurn'] === false) continue
@@ -499,6 +512,8 @@ export async function buildDetail(item: SessionIndexItem, nowMs = Date.now(), op
         const input = isObj(b['input']) ? b['input'] : {}
         const step = stepFor(name, input, item.cwd)
         step.state = 'running'
+        step.toolUseId = str(b['id'])
+        step.startedAt = ts || undefined
         steps.set(str(b['id']), step)
         if (input['run_in_background'] === true) background.add(str(b['id']))
         current.steps.push(step)
@@ -524,7 +539,13 @@ export async function buildDetail(item: SessionIndexItem, nowMs = Date.now(), op
   closeTurn()
 
   const running = item.status === 'running'
-  if (!running) for (const s of steps.values()) if (s.state === 'running') s.state = 'done'
+  if (!running) {
+    for (const [id, s] of steps) {
+      if (s.state !== 'running') continue
+      const live = background.has(id) && s.workflow && (await workflowActive(item.file, s.workflow.runId, nowMs))
+      if (!live) s.state = 'done'
+    }
+  }
   for (const meta of await subagentMetas(item.file, nowMs)) {
     const step = steps.get(meta.toolUseId)
     if (!step) continue
@@ -533,6 +554,12 @@ export async function buildDetail(item: SessionIndexItem, nowMs = Date.now(), op
     if (report) step.output = clip(report, MAX_OUTPUT)
     else if (step.output?.startsWith('Async agent launched')) step.output = undefined
     step.state = !meta.finished && meta.active && !report ? 'running' : step.state === 'error' ? 'error' : 'done'
+  }
+  for (const s of steps.values()) {
+    if (s.state === 'running') continue
+    delete s.toolUseId
+    delete s.taskId
+    delete s.startedAt
   }
 
   const editedPaths = [...new Set(edits.map((e) => e.path))].filter((p) => !PLAN_FILE.test(p))
@@ -600,9 +627,82 @@ export async function buildDetail(item: SessionIndexItem, nowMs = Date.now(), op
   }
 }
 
-export async function buildSubagentDetail(item: SessionIndexItem, agentId: string, nowMs = Date.now()): Promise<SubagentDetail> {
-  if (!AGENT_ID.test(agentId)) throw new Error('invalid agent id')
-  const dir = subagentDir(item.file)
+async function workflowActive(sessionFile: string, runId: string, nowMs: number): Promise<boolean> {
+  if (!WORKFLOW_RUN.test(runId)) return false
+  const dir = join(subagentDir(sessionFile), 'workflows', runId)
+  const names = await readdir(dir).catch(() => [] as string[])
+  const times = await Promise.all(names.map((n) => stat(join(dir, n)).then((st) => st.mtimeMs, () => 0)))
+  return times.some((t) => nowMs - t < AGENT_ACTIVE_MS)
+}
+
+async function firstTimestamp(file: string): Promise<string | undefined> {
+  const fh = await open(file, 'r').catch(() => null)
+  if (!fh) return undefined
+  try {
+    const buf = Buffer.alloc(16_384)
+    const { bytesRead } = await fh.read(buf, 0, buf.length, 0)
+    return /"timestamp":"([^"]+)"/.exec(buf.subarray(0, bytesRead).toString('utf8'))?.[1]
+  } finally {
+    await fh.close()
+  }
+}
+
+const TASK_ID = /^[A-Za-z0-9_-]{1,64}$/
+const MAX_TASK_OUTPUT = 40_000
+
+export async function readTaskOutput(item: SessionIndexItem, taskId: string): Promise<{ text: string; truncated: boolean; missing: boolean }> {
+  if (!TASK_ID.test(taskId)) throw new Error('invalid task id')
+  const uid = typeof process.getuid === 'function' ? process.getuid() : 0
+  const file = join('/tmp', `claude-${uid}`, basename(dirname(item.file)), item.id, 'tasks', `${taskId}.output`)
+  const fh = await open(file, 'r').catch(() => null)
+  if (!fh) return { text: '', truncated: false, missing: true }
+  try {
+    const { size } = await fh.stat()
+    const start = Math.max(0, size - MAX_TASK_OUTPUT)
+    const buf = Buffer.alloc(size - start)
+    await fh.read(buf, 0, buf.length, start)
+    return { text: buf.toString('utf8').replace(/\x1b\[[0-9;]*m/g, ''), truncated: start > 0, missing: false }
+  } finally {
+    await fh.close()
+  }
+}
+
+export async function readWorkflowRun(item: SessionIndexItem, runId: string): Promise<WorkflowRun> {
+  if (!WORKFLOW_RUN.test(runId)) throw new Error('invalid workflow run')
+  const dir = join(subagentDir(item.file), 'workflows', runId)
+  const raw = await readFile(join(dir, 'journal.jsonl'), 'utf8').catch(() => '')
+  const byAgent = new Map<string, WorkflowStep>()
+  for (const line of raw.split('\n')) {
+    let e: unknown
+    try {
+      e = JSON.parse(line)
+    } catch {
+      continue
+    }
+    if (!isObj(e)) continue
+    const agentId = str(e['agentId'])
+    if (!AGENT_ID.test(agentId)) continue
+    const type = str(e['type'])
+    if (type === 'started') byAgent.set(agentId, { agentId, label: str(e['label']) || 'Step', phase: str(e['phase']).replace(/^▸\s*/, ''), state: 'running' })
+    const step = byAgent.get(agentId)
+    if (step && type === 'result') step.state = 'done'
+    if (step && type === 'failed') step.state = 'error'
+  }
+  const steps = [...byAgent.values()]
+  await Promise.all(
+    steps.map(async (s) => {
+      const file = join(dir, `agent-${s.agentId}.jsonl`)
+      s.startedAt = await firstTimestamp(file)
+      if (s.state !== 'running') s.endedAt = await stat(file).then((st) => st.mtime.toISOString(), () => undefined)
+    })
+  )
+  return { runId, steps }
+}
+
+export async function buildSubagentDetail(item: SessionIndexItem, ref: string, nowMs = Date.now()): Promise<SubagentDetail> {
+  const [runId, agentId] = ref.includes('/') ? ref.split('/', 2) : ['', ref]
+  if (!agentId || !AGENT_ID.test(agentId) || (runId && !WORKFLOW_RUN.test(runId))) throw new Error('invalid agent id')
+  const dir = runId ? join(subagentDir(item.file), 'workflows', runId) : subagentDir(item.file)
   const meta = await readAgentMeta(dir, agentId, nowMs)
   if (!meta) throw new Error('Subagent not found')
   const live = !meta.finished && meta.active

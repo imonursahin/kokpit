@@ -6,7 +6,7 @@ import type { SearchResponse } from '../shared/search'
 import type { AppInfo, DoctorCheck, KokpitSettings, PlanUsage, UpdateStatus } from '../shared/settings'
 import type { TrayState, TrayTarget } from '../shared/tray'
 import type { McpAddInput, McpServerInfo } from '../shared/mcp'
-import type { SessionDetailData, SubagentDetail } from '../shared/sessionDetail'
+import type { SessionDetailData, SubagentDetail, WorkflowRun } from '../shared/sessionDetail'
 import type { SessionIndexItem } from '../shared/sessionIndex'
 
 const api = {
@@ -56,6 +56,8 @@ const api = {
   listSessions: (): Promise<SessionIndexItem[]> => ipcRenderer.invoke('sessions:list'),
   sessionDetail: (id: string, maxTurns?: number): Promise<SessionDetailData> => ipcRenderer.invoke('sessions:detail', id, maxTurns),
   subagentDetail: (id: string, agentId: string): Promise<SubagentDetail> => ipcRenderer.invoke('sessions:subagent', id, agentId),
+  workflowRun: (id: string, runId: string): Promise<WorkflowRun> => ipcRenderer.invoke('sessions:workflow', id, runId),
+  taskOutput: (id: string, taskId: string): Promise<{ text: string; truncated: boolean; missing: boolean }> => ipcRenderer.invoke('sessions:taskOutput', id, taskId),
   renameSession: (sessionId: string, title: string): Promise<void> => ipcRenderer.invoke('sessions:rename', sessionId, title),
   deleteSession: (sessionId: string): Promise<void> => ipcRenderer.invoke('sessions:delete', sessionId),
   terminal: {
@@ -90,6 +92,7 @@ const api = {
     respond: (sessionId: string, requestId: string, decision: AskDecision, note?: string, answers?: Record<string, string>): Promise<void> =>
       ipcRenderer.invoke('runner:respond', sessionId, requestId, decision, note, answers),
     interrupt: (sessionId: string): Promise<void> => ipcRenderer.invoke('runner:interrupt', sessionId),
+    stopTask: (sessionId: string, taskId: string): Promise<void> => ipcRenderer.invoke('runner:stopTask', sessionId, taskId),
     commands: (cwd: string): Promise<SlashCommandInfo[]> => ipcRenderer.invoke('runner:commands', cwd),
     models: (): Promise<ModelOption[]> => ipcRenderer.invoke('runner:models'),
     cancelQueued: (sessionId: string, uuid: string): Promise<boolean> => ipcRenderer.invoke('runner:cancelQueued', sessionId, uuid),

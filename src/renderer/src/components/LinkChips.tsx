@@ -73,6 +73,11 @@ const open = (url: string) => window.open(url, '_blank')
 
 const DOT: Record<JiraIssue['statusCategory'], string> = { new: 'var(--tx3)', indeterminate: 'var(--run)', done: 'var(--ok)' }
 
+export function openJiraIssue(jiraKey: string): void {
+  const api = window.kokpit
+  void cached(`jira:${jiraKey}`, () => api?.integrations.jiraIssue(jiraKey) ?? Promise.resolve(null)).then((i) => i && open(i.url))
+}
+
 export function JiraChip({ jiraKey }: { jiraKey: string }) {
   const api = window.kokpit
   const { open: isOpen, data, show, hide } = useHoverLoad(`jira:${jiraKey}`, () => api?.integrations.jiraIssue(jiraKey) ?? Promise.resolve(null))
@@ -85,7 +90,7 @@ export function JiraChip({ jiraKey }: { jiraKey: string }) {
       onClick={(e) => {
         e.stopPropagation()
         if (issue) open(issue.url)
-        else void cached(`jira:${jiraKey}`, () => api?.integrations.jiraIssue(jiraKey) ?? Promise.resolve(null)).then((i) => i && open(i.url))
+        else openJiraIssue(jiraKey)
       }}
     >
       <span style={{ cursor: 'pointer' }}>

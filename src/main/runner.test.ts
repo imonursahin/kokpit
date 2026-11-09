@@ -211,3 +211,94 @@ test('when the Claude process ends the session is dropped and the UI is told', a
   expect(runner.list()).toEqual([])
   await expect(runner.send('sess-1', 'again')).rejects.toThrow('not running')
 })
+
+test('a title typed for a new session is given to Claude Code at start, so it is never auto-named', async () => {
+  const sdk = await import('@anthropic-ai/claude-agent-sdk')
+  const titles: unknown[] = []
+  vi.mocked(sdk.query).mockImplementation(((args: { options: { title?: string } }) => {
+    titles.push(args.options.title)
+    return { close: vi.fn(), async *[Symbol.asyncIterator]() {} }
+  }) as never)
+  const { Runner } = await import('./runner')
+  const runner = new Runner(() => {})
+  await runner.start({ cwd: process.cwd(), prompt: 'hi', title: '  abc  ' })
+  await runner.start({ cwd: process.cwd(), prompt: 'hi', title: '' })
+  await runner.start({ cwd: process.cwd(), prompt: 'hi', title: 'abc', resumeId: '11111111-1111-1111-1111-111111111111' })
+  expect(titles).toEqual(['abc', undefined, undefined])
+  runner.dispose()
+})
+
+test('background work keeps showing after the turn ends, until its task finishes', async () => {
+  const { trackTask } = await import('./runner')
+  const tasks = new Map()
+  const at = new Date('2026-11-09T10:00:00Z')
+  expect(trackTask(tasks, { subtype: 'task_started', task_id: 'w1', task_type: 'local_workflow', workflow_name: 'dev-pipeline', description: 'x' }, at)).toBe(true)
+  expect(trackTask(tasks, { subtype: 'task_started', task_id: 'a1', ambient: true, description: 'watcher' }, at)).toBe(false)
+  expect(trackTask(tasks, { subtype: 'task_progress', task_id: 'w1', usage: { tool_uses: 7 }, last_tool_name: 'Bash' })).toBe(true)
+  expect([...tasks.values()]).toEqual([{ id: 'w1', taskId: 'w1', toolUseId: undefined, kind: 'Workflow', description: 'dev-pipeline', startedAt: at.toISOString(), toolUses: 7, lastTool: 'Bash' }])
+  expect(trackTask(tasks, { subtype: 'task_updated', task_id: 'w1', patch: { status: 'running' } })).toBe(false)
+  expect(trackTask(tasks, { subtype: 'task_notification', task_id: 'w1', status: 'completed' })).toBe(true)
+  expect(tasks.size).toBe(0)
+
+  const sdk = await import('@anthropic-ai/claude-agent-sdk')
+  let wake: () => void = () => {}
+  const msgs: unknown[] = []
+  const feed = (m: unknown) => {
+    msgs.push(m)
+    wake()
+  }
+  vi.mocked(sdk.query).mockImplementation((() => ({
+    close: vi.fn(),
+    async *[Symbol.asyncIterator]() {
+      while (true) {
+        if (msgs.length) yield msgs.shift()
+        else await new Promise<void>((r) => (wake = r))
+      }
+    }
+  })) as never)
+  const { Runner } = await import('./runner')
+  const runner = new Runner(() => {})
+  await runner.start({ cwd: process.cwd(), prompt: 'run it' })
+  feed({ type: 'system', subtype: 'init', session_id: 's1', model: 'm', permissionMode: 'default' })
+  feed({ type: 'system', subtype: 'task_started', task_id: 'w1', task_type: 'local_workflow', workflow_name: 'dev-pipeline', session_id: 's1' })
+  feed({ type: 'result', subtype: 'success', is_error: false, total_cost_usd: 0, session_id: 's1' })
+  await vi.waitFor(() => expect(runner.list()[0]).toMatchObject({ state: 'idle', background: [{ kind: 'Workflow', description: 'dev-pipeline' }] }))
+  feed({ type: 'system', subtype: 'task_notification', task_id: 'w1', status: 'completed', session_id: 's1' })
+  await vi.waitFor(() => expect(runner.list()[0]?.background).toEqual([]))
+  runner.dispose()
+})
+
+test('the session reports what Claude is doing right now: thinking, writing or running a tool', async () => {
+  const sdk = await import('@anthropic-ai/claude-agent-sdk')
+  let wake: () => void = () => {}
+  const msgs: unknown[] = []
+  const feed = (m: unknown) => {
+    msgs.push(m)
+    wake()
+  }
+  vi.mocked(sdk.query).mockImplementation((() => ({
+    close: vi.fn(),
+    async *[Symbol.asyncIterator]() {
+      while (true) {
+        if (msgs.length) yield msgs.shift()
+        else await new Promise<void>((r) => (wake = r))
+      }
+    }
+  })) as never)
+  const { Runner } = await import('./runner')
+  const runner = new Runner(() => {})
+  await runner.start({ cwd: process.cwd(), prompt: 'go' })
+  const now = () => runner.list()[0]?.activity
+  feed({ type: 'stream_event', session_id: 's1', event: { type: 'content_block_start', content_block: { type: 'thinking' } } })
+  await vi.waitFor(() => expect(now()).toEqual({ kind: 'thinking' }))
+  feed({ type: 'stream_event', session_id: 's1', parent_tool_use_id: 'x', event: { type: 'content_block_start', content_block: { type: 'text' } } })
+  feed({ type: 'stream_event', session_id: 's1', event: { type: 'content_block_start', content_block: { type: 'text' } } })
+  await vi.waitFor(() => expect(now()).toEqual({ kind: 'writing' }))
+  feed({ type: 'assistant', session_id: 's1', parent_tool_use_id: null, message: { content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'npm   test' } }] } })
+  await vi.waitFor(() => expect(now()).toEqual({ kind: 'tool', tool: 'Bash', detail: 'npm test' }))
+  feed({ type: 'user', session_id: 's1', parent_tool_use_id: null, message: { content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }] } })
+  await vi.waitFor(() => expect(now()).toEqual({ kind: 'thinking' }))
+  feed({ type: 'result', subtype: 'success', is_error: false, total_cost_usd: 0, session_id: 's1' })
+  await vi.waitFor(() => expect(now()).toBeUndefined())
+  runner.dispose()
+})

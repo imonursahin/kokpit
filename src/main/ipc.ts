@@ -27,7 +27,7 @@ import { focusAndNavigate } from './tray'
 import type { PlanUsage, UpdateStatus } from '../shared/settings'
 import { SearchIndex } from './search'
 import { relativeTime } from '../shared/time'
-import { buildDetail, buildSubagentDetail } from './sessions/detail'
+import { buildDetail, buildSubagentDetail, readTaskOutput, readWorkflowRun } from './sessions/detail'
 import { revertFile } from './sessions/revert'
 import { KokpitSessions } from './sessions/origin'
 import { readCliStatuses } from './sessions/live'
@@ -113,9 +113,11 @@ export function registerIpc(
       const i = item.headless && kokpitSessions.has(item.id) ? { ...item, headless: false } : item
       const l = live.get(i.id)
       if (!l) return i
-      const status = l.state === 'waiting' ? 'waiting' : l.state === 'error' ? 'error' : l.state === 'idle' ? 'done' : 'running'
+      const bg = l.background?.[0]
+      const status = l.state === 'waiting' ? 'waiting' : l.state === 'error' ? 'error' : l.state === 'idle' && !bg ? 'done' : 'running'
       const ask = l.pending[0]
-      return { ...i, status, sub: ask ? `${ask.title}: ${ask.detail}`.slice(0, 200) : i.sub }
+      const sub = ask ? `${ask.title}: ${ask.detail}` : l.state === 'idle' && bg ? `In background: ${bg.kind} · ${bg.description}` : i.sub
+      return { ...i, status, sub: sub.slice(0, 200) }
     })
   }
   let timer: NodeJS.Timeout | null = null
@@ -168,6 +170,18 @@ export function registerIpc(
     const item = store.items().find((i) => i.id === id)
     if (!item) throw new Error(`session ${id} not found`)
     return buildSubagentDetail(item, agentId)
+  })
+  ipcMain.handle('sessions:workflow', async (_e, id: unknown, runId: unknown) => {
+    if (typeof id !== 'string' || typeof runId !== 'string') throw new Error('invalid workflow request')
+    const item = store.items().find((i) => i.id === id)
+    if (!item) throw new Error(`session ${id} not found`)
+    return readWorkflowRun(item, runId)
+  })
+  ipcMain.handle('sessions:taskOutput', async (_e, id: unknown, taskId: unknown) => {
+    if (typeof id !== 'string' || typeof taskId !== 'string') throw new Error('invalid task output request')
+    const item = store.items().find((i) => i.id === id)
+    if (!item) throw new Error(`session ${id} not found`)
+    return readTaskOutput(item, taskId)
   })
   ipcMain.handle('sessions:detail', async (_e, id: unknown, maxTurns: unknown) => {
     if (typeof id !== 'string') throw new Error('session id must be a string')
@@ -436,6 +450,7 @@ export function registerIpc(
     runner.respond(id, requestId, decision, note, answers)
   )
   ipcMain.handle('runner:interrupt', (_e, id: unknown) => runner.interrupt(id))
+  ipcMain.handle('runner:stopTask', (_e, id: unknown, taskId: unknown) => runner.stopTask(id, taskId))
   ipcMain.handle('runner:commands', (_e, cwd: unknown) => runner.commands(cwd))
   ipcMain.handle('runner:models', () => runner.models())
   ipcMain.handle('runner:cancelQueued', (_e, id: unknown, uuid: unknown) => runner.cancelQueued(id, uuid))
@@ -457,7 +472,7 @@ export function registerIpc(
     watcher?.close()
     ipcMain.removeHandler('sessions:list')
     ipcMain.removeHandler('sessions:detail')
-    for (const ch of ['library:list', 'library:save', 'library:create', 'library:import', 'library:delete', 'search:query', 'runner:list', 'runner:start', 'runner:send', 'runner:respond', 'runner:interrupt', 'runner:commands', 'runner:models', 'runner:cancelQueued', 'runner:rewindFiles', 'files:mention', 'shell:run', 'memory:append', 'runner:setMode', 'integrations:status', 'integrations:connectJira', 'integrations:connectGithub', 'integrations:disconnect', 'jira:issues', 'jira:issue', 'github:prs', 'app:user', 'changes:revert', 'github:prsByUrl', 'settings:get', 'settings:update', 'app:info', 'app:openFolder', 'app:keepAwake', 'app:doctor', 'app:planUsage', 'tray:refreshUsage', 'app:testNotification', 'sessions:rebuild', 'dialog:pickFiles', 'plan:save', 'jira:comment', 'github:mine', 'github:counts', 'sessions:rename', 'sessions:delete', 'sessions:subagent', 'mcp:status', 'mcp:remove', 'mcp:logout', 'mcp:add', 'term:mcpLogin', 'term:update', 'update:get', 'update:check', 'app:relaunch', 'term:write', 'term:resize', 'term:kill'])
+    for (const ch of ['library:list', 'library:save', 'library:create', 'library:import', 'library:delete', 'search:query', 'runner:list', 'runner:start', 'runner:send', 'runner:respond', 'runner:interrupt', 'runner:commands', 'runner:models', 'runner:cancelQueued', 'runner:rewindFiles', 'files:mention', 'shell:run', 'memory:append', 'runner:setMode', 'integrations:status', 'integrations:connectJira', 'integrations:connectGithub', 'integrations:disconnect', 'jira:issues', 'jira:issue', 'github:prs', 'app:user', 'changes:revert', 'github:prsByUrl', 'settings:get', 'settings:update', 'app:info', 'app:openFolder', 'app:keepAwake', 'app:doctor', 'app:planUsage', 'tray:refreshUsage', 'app:testNotification', 'sessions:rebuild', 'dialog:pickFiles', 'plan:save', 'jira:comment', 'github:mine', 'github:counts', 'sessions:rename', 'sessions:delete', 'sessions:subagent', 'sessions:workflow', 'sessions:taskOutput', 'runner:stopTask', 'mcp:status', 'mcp:remove', 'mcp:logout', 'mcp:add', 'term:mcpLogin', 'term:update', 'update:get', 'update:check', 'app:relaunch', 'term:write', 'term:resize', 'term:kill'])
       ipcMain.removeHandler(ch)
     if (awakeId !== null) powerSaveBlocker.stop(awakeId)
     runner.dispose()

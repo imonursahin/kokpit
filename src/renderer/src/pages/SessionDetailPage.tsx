@@ -1,6 +1,6 @@
-import { createContext, Fragment, useCallback, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { MODE_LABELS, MODES, type AskDecision, type ImageInput, type LiveSession, type LiveState, type RewindResult, type RunnerMode } from '@shared/runner'
-import type { SessionDetailData, SubagentDetail } from '@shared/sessionDetail'
+import { createContext, Fragment, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { MODE_LABELS, MODES, type Activity, type AskDecision, type BackgroundTask, type ImageInput, type LiveSession, type LiveState, type RewindResult, type RunnerMode } from '@shared/runner'
+import type { SessionDetailData, SubagentDetail, WorkflowRun, WorkflowStep } from '@shared/sessionDetail'
 import type { SessionStatus } from '@shared/types'
 import { relativeTime } from '@shared/time'
 import { ApprovalCard } from '@/components/ApprovalCard'
@@ -9,6 +9,7 @@ import { DiffFileHeader, type DiffFile } from '@/components/DiffFileHeader'
 import { Icon, KeyHint, Spinner } from '@/components/primitives'
 import { Status } from '@/components/Status'
 import { Markdown } from '@/components/Markdown'
+import { openJiraIssue } from '@/components/LinkChips'
 import { StepRow, SubagentOpen, type Step } from '@/components/StepRow'
 import { useSlashCommands } from '@/components/SlashCommands'
 import { useFileMentions } from '@/components/FileMentions'
@@ -425,13 +426,13 @@ function Header({
         </span>
         {(linkPlaceholders || h.jira || h.pr) && <span style={{ color: 'var(--line)' }}>|</span>}
         {h.jira ? (
-          <span style={chip}>
+          <button onClick={() => h.jira && openJiraIssue(h.jira.key)} title="Open in Jira" style={{ ...chip, cursor: 'pointer' }}>
             <Icon name="task_alt" size={14} color="var(--run)" />
             <span style={{ font: `500 11.5px/1 ${MONO}`, color: 'var(--tx)' }}>{h.jira.key}</span>
             {h.jira.title && (
               <span style={{ maxWidth: 300, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{h.jira.title}</span>
             )}
-          </span>
+          </button>
         ) : (
           linkPlaceholders && (
             <button
@@ -494,7 +495,107 @@ function elapsedLabel(ms: number): string {
   return m < 60 ? `${m}m ${s % 60}s` : `${Math.floor(m / 60)}h ${m % 60}m`
 }
 
-function WorkingRow({ since, busyTool }: { since?: string; busyTool: boolean }) {
+function BackgroundRows({ tasks, onStop }: { tasks: BackgroundTask[]; onStop?: (taskId: string) => Promise<void> }) {
+  const [stopping, setStopping] = useState<Set<string>>(() => new Set())
+  const open = useContext(SubagentOpen)
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const t = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(t)
+  }, [])
+  return (
+    <div role="status" aria-live="polite" style={{ display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0 }}>
+      {tasks.map((t) => (
+        <div
+          key={t.id}
+          role={t.ref && open ? 'button' : undefined}
+          title={t.ref && open ? 'Open' : undefined}
+          className={t.ref && open ? 'step-row' : undefined}
+          onClick={() => t.ref && open?.(t.ref)}
+          style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: 'var(--tx2)', minWidth: 0, padding: '2px 8px', margin: '0 -8px', borderRadius: 6, cursor: t.ref && open ? 'pointer' : undefined }}
+        >
+          <Spinner size={12} />
+          <span style={{ flexShrink: 0, color: 'var(--tx3)' }}>{t.kind}</span>
+          <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.description}</span>
+          <span style={{ flexShrink: 0, color: 'var(--tx3)', fontVariantNumeric: 'tabular-nums' }}>
+            {t.startedAt ? elapsedLabel(now - Date.parse(t.startedAt)) : ''}
+            {t.toolUses ? ` · ${t.toolUses} tool uses` : ''}
+            {t.lastTool ? ` · ${t.lastTool}` : ''}
+          </span>
+          {onStop && t.taskId && (
+            <button
+              aria-label={`Stop ${t.description}`}
+              title="Stop this task"
+              disabled={stopping.has(t.taskId)}
+              onClick={(e) => {
+                e.stopPropagation()
+                const id = t.taskId
+                if (!id) return
+                setStopping((cur) => new Set(cur).add(id))
+                onStop(id).catch(() => setStopping((cur) => {
+                  const next = new Set(cur)
+                  next.delete(id)
+                  return next
+                }))
+              }}
+              style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 'auto', flexShrink: 0, height: 22, padding: '0 8px', border: '1px solid var(--line)', borderRadius: 6, fontSize: 11.5, color: 'var(--tx2)', cursor: 'pointer', opacity: stopping.has(t.taskId) ? 0.5 : 1 }}
+            >
+              <Icon name="stop" size={13} color="var(--tx3)" />
+              {stopping.has(t.taskId) ? 'Stopping…' : 'Stop'}
+            </button>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function lastRunningStep(turns: { kind: string; steps?: Step[] }[]): Step | undefined {
+  const last = turns[turns.length - 1]
+  return last?.kind === 'claude' ? [...(last.steps ?? [])].reverse().find((st) => st.state === 'running' && st.meta !== 'in background') : undefined
+}
+
+const TOOL_VERBS: Record<string, string> = {
+  Bash: 'Running',
+  Read: 'Reading',
+  Edit: 'Editing',
+  MultiEdit: 'Editing',
+  Write: 'Writing',
+  Grep: 'Searching',
+  Glob: 'Searching',
+  WebFetch: 'Fetching',
+  WebSearch: 'Searching the web',
+  Agent: 'Starting a subagent',
+  Task: 'Starting a subagent',
+  Workflow: 'Starting a workflow',
+  TodoWrite: 'Updating the todo list',
+  Skill: 'Loading a skill',
+  ToolSearch: 'Looking up tools'
+}
+
+const STEP_VERBS: Partial<Record<Step['kind'], string>> = {
+  command: 'Running',
+  read: 'Reading',
+  edit: 'Editing',
+  create: 'Writing',
+  search: 'Searching',
+  fetch: 'Fetching',
+  jira: 'Calling Jira',
+  todo: 'Updating the todo list'
+}
+
+export function activityLabel(activity: Activity | undefined, step?: Step): { label: string; detail?: string } {
+  if (activity?.kind === 'writing') return { label: 'Writing…' }
+  if (activity?.kind === 'tool' && activity.tool) {
+    const mcp = activity.tool.startsWith('mcp__') ? activity.tool.split('__').slice(1).join(' · ') : ''
+    return { label: mcp ? `Calling ${mcp}` : `${TOOL_VERBS[activity.tool] ?? `Using ${activity.tool}`}…`, detail: activity.detail }
+  }
+  if (activity?.kind === 'thinking') return { label: 'Thinking…' }
+  if (step) return { label: `${STEP_VERBS[step.kind] ?? step.label}…`, detail: step.target }
+  return { label: 'Working…' }
+}
+
+function WorkingRow({ since, label, detail }: { since?: string; label: string; detail?: string }) {
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
     const t = window.setInterval(() => setNow(Date.now()), 1000)
@@ -504,7 +605,8 @@ function WorkingRow({ since, busyTool }: { since?: string; busyTool: boolean }) 
   return (
     <div role="status" aria-live="polite" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: 'var(--tx2)', flexShrink: 0 }}>
       <Spinner size={12} />
-      <span>{busyTool ? 'Working…' : 'Thinking…'}</span>
+      <span style={{ flexShrink: 0 }}>{label}</span>
+      {detail && <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--tx3)', font: `12px ${MONO}` }}>{detail}</span>}
       {Number.isFinite(start) && <span style={{ color: 'var(--tx3)', fontVariantNumeric: 'tabular-nums' }}>{elapsedLabel(now - start)}</span>}
     </div>
   )
@@ -604,7 +706,209 @@ function SubagentModal({ sessionId, agentId, onClose }: { sessionId: string; age
             </span>
           )}
           {view?.turns.map((t, i) => <TurnView key={i} turn={t} />)}
-          {running && <WorkingRow since={detail?.activeSince} busyTool={false} />}
+          {running && <WorkingRow since={detail?.activeSince} {...activityLabel(undefined, lastRunningStep(view?.turns ?? []))} />}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ShellOutputModal({ sessionId, taskId, onClose }: { sessionId: string; taskId: string; onClose: () => void }) {
+  const [out, setOut] = useState<{ text: string; truncated: boolean; missing: boolean } | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const bodyRef = useRef<HTMLPreElement>(null)
+  const pinned = useRef(true)
+
+  useEffect(() => {
+    let alive = true
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const load = () => {
+      window.kokpit
+        ?.taskOutput(sessionId, taskId)
+        .then((o) => alive && (setOut(o), setError(null)))
+        .catch((err: unknown) => alive && setError(err instanceof Error ? err.message : String(err)))
+        .finally(() => {
+          if (alive) timer = setTimeout(load, 1500)
+        })
+    }
+    load()
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      e.stopPropagation()
+      onClose()
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => {
+      alive = false
+      if (timer) clearTimeout(timer)
+      window.removeEventListener('keydown', onKey, true)
+    }
+  }, [sessionId, taskId, onClose])
+
+  useEffect(() => {
+    const el = bodyRef.current
+    if (el && pinned.current) el.scrollTop = el.scrollHeight
+  }, [out])
+
+  return (
+    <div
+      onMouseDown={(e) => e.target === e.currentTarget && onClose()}
+      style={{ position: 'fixed', inset: 0, zIndex: 60, background: 'var(--scrim)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 40 }}
+    >
+      <div
+        role="dialog"
+        aria-modal
+        aria-label="Shell output"
+        style={{ width: 820, maxWidth: '100%', height: '70vh', display: 'flex', flexDirection: 'column', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 14, boxShadow: 'var(--pop)', overflow: 'hidden' }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px', borderBottom: '1px solid var(--line)' }}>
+          <Icon name="terminal" size={20} color="var(--tx2)" />
+          <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
+            <span style={{ fontSize: 14, fontWeight: 600 }}>Background shell</span>
+            <span style={{ fontSize: 12, color: 'var(--tx3)', fontFamily: MONO }}>{taskId}{out?.truncated ? ' · showing the end' : ''}</span>
+          </div>
+          <button onClick={onClose} aria-label="Close" style={{ display: 'flex', padding: 4, borderRadius: 6, cursor: 'pointer' }}>
+            <Icon name="close" size={18} color="var(--tx2)" />
+          </button>
+        </div>
+        <pre
+          ref={bodyRef}
+          className="selectable"
+          onScroll={(e) => {
+            const el = e.currentTarget
+            pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40
+          }}
+          style={{ flex: 1, minHeight: 0, margin: 0, overflow: 'auto', padding: '16px 20px', font: `12px/1.55 ${MONO}`, color: 'var(--tx)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}
+        >
+          {error ? error : !out ? 'Loading…' : out.missing ? 'No output file yet.' : out.text || 'No output yet.'}
+        </pre>
+      </div>
+    </div>
+  )
+}
+
+function WorkflowModal({ sessionId, runId, onOpenStep, onClose }: { sessionId: string; runId: string; onOpenStep: (ref: string) => void; onClose: () => void }) {
+  const [run, setRun] = useState<WorkflowRun | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [now, setNow] = useState(() => Date.now())
+
+  useEffect(() => {
+    let alive = true
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const load = () => {
+      window.kokpit
+        ?.workflowRun(sessionId, runId)
+        .then((r) => {
+          if (!alive) return
+          setRun(r)
+          setError(null)
+          setNow(Date.now())
+        })
+        .catch((err: unknown) => alive && setError(err instanceof Error ? err.message : String(err)))
+        .finally(() => {
+          if (alive) timer = setTimeout(load, 2500)
+        })
+    }
+    load()
+    return () => {
+      alive = false
+      if (timer) clearTimeout(timer)
+    }
+  }, [sessionId, runId])
+
+  useEffect(() => {
+    const t = window.setInterval(() => setNow(Date.now()), 1000)
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      e.stopPropagation()
+      onClose()
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => {
+      window.clearInterval(t)
+      window.removeEventListener('keydown', onKey, true)
+    }
+  }, [onClose])
+
+  const phases = useMemo(() => {
+    const out: { phase: string; steps: WorkflowStep[] }[] = []
+    for (const st of run?.steps ?? []) {
+      const last = out[out.length - 1]
+      if (last && last.phase === st.phase) last.steps.push(st)
+      else out.push({ phase: st.phase, steps: [st] })
+    }
+    return out
+  }, [run])
+  const running = run?.steps.some((st) => st.state === 'running') ?? false
+  const failed = run?.steps.filter((st) => st.state === 'error').length ?? 0
+  const first = run?.steps.find((st) => st.startedAt)?.startedAt
+  const lastEnd = run?.steps.reduce((m, st) => (st.endedAt && st.endedAt > m ? st.endedAt : m), '') ?? ''
+  const total = first ? (running ? now : Date.parse(lastEnd || first)) - Date.parse(first) : 0
+  const took = (st: WorkflowStep) => (st.startedAt ? elapsedLabel((st.endedAt ? Date.parse(st.endedAt) : now) - Date.parse(st.startedAt)) : '')
+
+  return (
+    <div
+      onMouseDown={(e) => e.target === e.currentTarget && onClose()}
+      style={{ position: 'fixed', inset: 0, zIndex: 60, background: 'var(--scrim)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 40 }}
+    >
+      <div
+        role="dialog"
+        aria-modal
+        aria-label="Workflow run"
+        style={{ width: 720, maxWidth: '100%', maxHeight: '82vh', display: 'flex', flexDirection: 'column', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 14, boxShadow: 'var(--pop)', overflow: 'hidden' }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px', borderBottom: '1px solid var(--line)' }}>
+          <Icon name="account_tree" size={20} color="var(--tx2)" />
+          <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
+            <span style={{ fontSize: 14, fontWeight: 600 }}>Workflow run</span>
+            <span style={{ fontSize: 12, color: 'var(--tx3)', fontFamily: "'Geist Mono',monospace" }}>
+              {runId}
+              {run ? ` · ${run.steps.length} steps · ${elapsedLabel(total)}` : ''}
+            </span>
+          </div>
+          {run && (
+            <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: running ? 'var(--run)' : failed ? 'var(--err)' : 'var(--ok)' }}>
+              {running ? <Spinner size={11} /> : <Icon name={failed ? 'error' : 'check_circle'} size={16} color={failed ? 'var(--err)' : 'var(--ok)'} />}
+              {running ? 'Running' : failed ? `${failed} failed` : 'Done'}
+            </span>
+          )}
+          <button onClick={onClose} aria-label="Close" style={{ display: 'flex', padding: 4, borderRadius: 6, cursor: 'pointer' }}>
+            <Icon name="close" size={18} color="var(--tx2)" />
+          </button>
+        </div>
+        <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: '8px 18px 18px' }}>
+          {error && <div style={{ padding: '10px 0', fontSize: 12.5, color: 'var(--err)' }}>{error}</div>}
+          {!run && !error && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 0', fontSize: 12.5, color: 'var(--tx3)' }}>
+              <Spinner size={11} /> Loading…
+            </div>
+          )}
+          {run && !run.steps.length && <div style={{ padding: '10px 0', fontSize: 12.5, color: 'var(--tx3)' }}>No steps have started yet.</div>}
+          {phases.map((ph, i) => (
+            <div key={`${ph.phase}-${i}`} style={{ display: 'flex', flexDirection: 'column' }}>
+              <div style={{ padding: '14px 0 6px', fontSize: 11, fontWeight: 600, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--tx3)' }}>{ph.phase || 'Steps'}</div>
+              {ph.steps.map((st) => (
+                <button
+                  key={st.agentId}
+                  className="menu-item"
+                  onClick={() => onOpenStep(`${runId}/${st.agentId}`)}
+                  title="Open this step"
+                  style={{ display: 'flex', alignItems: 'center', gap: 10, height: 32, padding: '0 8px', margin: '0 -8px', borderRadius: 6, fontSize: 13, textAlign: 'left', cursor: 'pointer' }}
+                >
+                  <span style={{ width: 16, display: 'flex', justifyContent: 'center', flexShrink: 0 }}>
+                    {st.state === 'running' ? (
+                      <Spinner size={11} width={1.75} />
+                    ) : (
+                      <Icon name={st.state === 'error' ? 'error' : 'check_circle'} size={16} color={st.state === 'error' ? 'var(--err)' : 'var(--ok)'} />
+                    )}
+                  </span>
+                  <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: st.state === 'running' ? 'var(--run)' : 'var(--tx)' }}>{st.label}</span>
+                  <span style={{ flexShrink: 0, fontSize: 12, color: 'var(--tx3)', fontVariantNumeric: 'tabular-nums' }}>{took(st)}</span>
+                  <Icon name="chevron_right" size={16} color="var(--tx3)" />
+                </button>
+              ))}
+            </div>
+          ))}
         </div>
       </div>
     </div>
@@ -1403,6 +1707,8 @@ const LIVE_STATUS: Record<LiveState, SessionStatus> = {
   error: 'error'
 }
 
+const COMPOSER_MAX_LINES = 5
+
 const WORKING = 'Claude is working — type to queue a message…'
 
 function Detail({
@@ -1460,6 +1766,19 @@ function Detail({
   const mention = useFileMentions(text, setText, 'above', live?.cwd ?? cwd)
   const pasted = usePastedImages()
   const recall = useRef<{ index: number; draft: string } | null>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
+  const [inputFocused, setInputFocused] = useState(false)
+  useLayoutEffect(() => {
+    const el = inputRef.current
+    if (!el) return
+    const line = parseFloat(getComputedStyle(el).lineHeight) || 20
+    el.style.height = 'auto'
+    const full = el.scrollHeight
+    const height = inputFocused ? Math.min(full, line * COMPOSER_MAX_LINES) : line
+    el.style.height = `${height}px`
+    el.style.overflowY = inputFocused && full > height + 1 ? 'auto' : 'hidden'
+    if (!inputFocused) el.scrollTop = 0
+  }, [text, inputFocused])
   const [model, setModel] = useState(data.model)
   const [thinking, setThinking] = useState(defaultEffort ?? data.thinking)
   const [mode, setMode] = useState<RunnerMode>(permissionMode ?? defaultMode ?? 'default')
@@ -1641,6 +1960,29 @@ function Detail({
   const [shell, setShell] = useState<{ command: string; code: number | null; output: string; truncated: boolean } | 'running' | null>(null)
   const [memoryNote, setMemoryNote] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const background = useMemo<BackgroundTask[]>(() => {
+    const fromTranscript = data.turns.flatMap((t) =>
+      t.kind === 'claude'
+        ? t.steps
+            .filter((st) => st.state === 'running' && (st.meta === 'in background' || !!st.agent))
+            .map((st, i) => {
+              const match = live?.background?.find((b) => b.toolUseId && b.toolUseId === st.toolUseId)
+              const taskId = st.taskId || match?.taskId
+              return {
+                id: st.toolUseId || `${st.label}-${st.target}-${i}`,
+                kind: st.workflow ? 'Workflow' : st.agent ? 'Subagent' : st.kind === 'command' ? 'Shell' : st.label,
+                description: st.workflow?.name || (st.agent ? `${st.agent.type} · ${st.target}` : st.target),
+                startedAt: st.startedAt || match?.startedAt || '',
+                toolUses: match?.toolUses,
+                lastTool: match?.lastTool,
+                taskId,
+                ref: st.workflow ? `workflow:${st.workflow.runId}` : st.agent ? st.agent.id : st.kind === 'command' && taskId ? `shell:${taskId}` : undefined
+              }
+            })
+        : []
+    )
+    return fromTranscript.length ? fromTranscript : (live?.background ?? [])
+  }, [live, data.turns])
   const runBang = (command: string) => {
     if (!sessionCwd || !window.kokpit) return
     setShell('running')
@@ -1967,14 +2309,11 @@ function Detail({
                   )}
                 </div>
               ))}
-              {(running || data.header.status === 'running') && !live?.pending.length && (
-                <WorkingRow
-                  since={data.activeSince}
-                  busyTool={(() => {
-                    const last = data.turns[data.turns.length - 1]
-                    return last?.kind === 'claude' && last.steps.some((s) => s.state === 'running')
-                  })()}
-                />
+              {(running || (data.header.status === 'running' && !background.length)) && !live?.pending.length && (
+                <WorkingRow since={data.activeSince} {...activityLabel(live?.activity, lastRunningStep(data.turns))} />
+              )}
+              {background.length > 0 && (
+                <BackgroundRows tasks={background} onStop={live ? (taskId) => window.kokpit?.runner.stopTask(live.sessionId, taskId) ?? Promise.resolve() : undefined} />
               )}
               {live?.pending.map((p, i) =>
                 p.toolName === 'AskUserQuestion' ? (
@@ -2106,11 +2445,14 @@ function Detail({
                 {slash.menu}
                 {mention.menu}
                 <textarea
+                  ref={inputRef}
                   className="bare"
                   value={text}
                   onPaste={pasted.onPaste}
                   placeholder={data.placeholder}
-                  rows={Math.min(8, text.split('\n').length)}
+                  rows={1}
+                  onFocus={() => setInputFocused(true)}
+                  onBlur={() => setInputFocused(false)}
                   onChange={(e) => {
                     recall.current = null
                     setText(e.target.value)
@@ -2366,7 +2708,7 @@ export function RealSessionDetailPage({
     const s = live.state
     return {
       ...base,
-      header: { ...base.header, status: LIVE_STATUS[s] },
+      header: { ...base.header, status: s === 'idle' && live.background?.length ? 'running' : LIVE_STATUS[s] },
       placeholder: s === 'running' || s === 'starting' || s === 'waiting' ? WORKING : 'Message Claude…',
       running: s === 'running' || s === 'waiting'
     }
@@ -2386,7 +2728,13 @@ export function RealSessionDetailPage({
         onRevert={onRevert}
         {...rest}
       />
-      {agentId && <SubagentModal sessionId={data.id} agentId={agentId} onClose={closeAgent} />}
+      {agentId?.startsWith('shell:') ? (
+        <ShellOutputModal sessionId={data.id} taskId={agentId.slice(6)} onClose={closeAgent} />
+      ) : agentId?.startsWith('workflow:') ? (
+        <WorkflowModal sessionId={data.id} runId={agentId.slice(9)} onOpenStep={setAgentId} onClose={closeAgent} />
+      ) : agentId ? (
+        <SubagentModal sessionId={data.id} agentId={agentId} onClose={agentId.includes('/') ? () => setAgentId(`workflow:${agentId.split('/')[0]}`) : closeAgent} />
+      ) : null}
     </SubagentOpen.Provider>
   )
 }

@@ -25,6 +25,10 @@ export type Step = {
   output?: string
   expanded?: boolean
   agent?: { id: string; type: string }
+  workflow?: { runId: string; name: string }
+  toolUseId?: string
+  taskId?: string
+  startedAt?: string
 }
 
 export const SubagentOpen = createContext<((agentId: string) => void) | null>(null)
@@ -33,18 +37,20 @@ export function StepRow({ step }: { step: Step }) {
   const [expanded, setExpanded] = useState(!!step.expanded)
   const openAgent = useContext(SubagentOpen)
   const agent = step.agent && openAgent ? step.agent : null
+  const workflow = step.workflow && openAgent ? step.workflow : null
   const err = step.state === 'error'
   const live = step.state === 'running'
-  const canExpand = !live && !agent
-  const clickable = canExpand || !!agent
+  const canExpand = !live && !agent && !workflow
+  const clickable = canExpand || !!agent || !!workflow
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', fontSize: 12.5 }}>
       <div
         role={clickable ? 'button' : undefined}
-        title={agent ? 'Open this subagent' : undefined}
+        title={agent ? 'Open this subagent' : workflow ? 'Open this workflow run' : undefined}
         onClick={() => {
-          if (agent) openAgent?.(agent.id)
+          if (workflow) openAgent?.(`workflow:${workflow.runId}`)
+          else if (agent) openAgent?.(agent.id)
           else if (canExpand) setExpanded((v) => !v)
         }}
         className="step-row"
@@ -64,7 +70,7 @@ export function StepRow({ step }: { step: Step }) {
         <span style={{ width: 16, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
           {live ? <Spinner size={11} width={1.75} /> : <Icon name={ICONS[step.kind]} size={16} color={err ? 'var(--err)' : 'var(--tx3)'} />}
         </span>
-        <span style={{ color: live ? 'var(--run)' : 'var(--tx2)', flexShrink: 0 }}>{agent ? `${step.label} · ${agent.type}` : step.label}</span>
+        <span style={{ color: live ? 'var(--run)' : 'var(--tx2)', flexShrink: 0 }}>{agent ? `${step.label} · ${agent.type}` : workflow ? `Workflow · ${workflow.name || workflow.runId}` : step.label}</span>
         <span
           style={{
             font: "12px/1.3 'Geist Mono',monospace",
@@ -92,7 +98,7 @@ export function StepRow({ step }: { step: Step }) {
         >
           {step.meta}
         </span>
-        <Icon name={agent ? 'chevron_right' : live ? '' : expanded ? 'expand_less' : 'expand_more'} size={16} color="var(--tx3)" />
+        <Icon name={agent || workflow ? 'chevron_right' : live ? '' : expanded ? 'expand_less' : 'expand_more'} size={16} color="var(--tx3)" />
       </div>
       {expanded && step.output && (
         <pre

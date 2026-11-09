@@ -12,6 +12,10 @@ export type DetailStep = {
   state?: 'done' | 'running' | 'error'
   output?: string
   agent?: { id: string; type: string }
+  workflow?: { runId: string; name: string }
+  toolUseId?: string
+  taskId?: string
+  startedAt?: string
 }
 
 export type DetailTurn =
@@ -55,6 +59,10 @@ export type SessionDetailData = {
   filesRoot: string | null
   plan?: { file: string; path: string; markdown: string; updatedAt: string }
 }
+
+export type WorkflowStep = { agentId: string; label: string; phase: string; state: 'running' | 'done' | 'error'; startedAt?: string; endedAt?: string }
+
+export type WorkflowRun = { runId: string; steps: WorkflowStep[] }
 
 export type SubagentDetail = SessionDetailData & {
   agent: { id: string; type: string; description: string; finished: boolean }

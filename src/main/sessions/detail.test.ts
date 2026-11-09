@@ -199,3 +199,68 @@ test('a background command stays running until its task notification arrives', a
   writeFileSync(file, [...lines, JSON.stringify({ type: 'attachment', timestamp: '2026-01-01T10:05:00Z', attachment: { type: 'queued_command', prompt: note } })].join('\n'))
   expect(await stepOf()).toMatchObject({ state: 'done', meta: 'finished in background' })
 })
+
+test('a workflow run lists its steps with phase, state and timing from its journal', async () => {
+  const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const { readWorkflowRun } = await import('./detail')
+  const root = mkdtempSync(join(tmpdir(), 'kokpit-wf-'))
+  const dir = join(root, 's1', 'subagents', 'workflows', 'wf_abc-1')
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(
+    join(dir, 'journal.jsonl'),
+    [
+      { type: 'launched' },
+      { type: 'started', agentId: 'a1', label: 'Preflight', phase: '▸ sdlc-workflows:Prepare' },
+      { type: 'result', agentId: 'a1', result: {} },
+      { type: 'started', agentId: 'a2', label: 'Develop', phase: '▸ sdlc-workflows:Develop' },
+      { type: 'started', agentId: 'a3', label: 'Lint', phase: '▸ sdlc-workflows:Develop' },
+      { type: 'failed', agentId: 'a3' }
+    ]
+      .map((e) => JSON.stringify(e))
+      .join('\n')
+  )
+  writeFileSync(join(dir, 'agent-a1.jsonl'), '{"type":"user","timestamp":"2026-11-09T07:15:00.000Z"}\n')
+  const run = await readWorkflowRun({ file: join(root, 's1.jsonl') } as never, 'wf_abc-1')
+  expect(run.steps.map((s) => [s.label, s.phase, s.state])).toEqual([
+    ['Preflight', 'sdlc-workflows:Prepare', 'done'],
+    ['Develop', 'sdlc-workflows:Develop', 'running'],
+    ['Lint', 'sdlc-workflows:Develop', 'error']
+  ])
+  expect(run.steps[0]?.startedAt).toBe('2026-11-09T07:15:00.000Z')
+  expect(run.steps[0]?.endedAt).toBeTruthy()
+  await expect(readWorkflowRun({ file: join(root, 's1.jsonl') } as never, '../etc')).rejects.toThrow('invalid workflow run')
+})
+
+test('a background workflow shows as running until its completion notice, which can arrive as a user message', async () => {
+  const { mkdtempSync, writeFileSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const { buildDetail } = await import('./detail')
+  const dir = mkdtempSync(join(tmpdir(), 'kokpit-bgwf-'))
+  const file = join(dir, 's.jsonl')
+  const lines = [
+    { type: 'user', timestamp: '2026-01-01T10:00:00Z', message: { content: 'run it' } },
+    { type: 'assistant', timestamp: '2026-01-01T10:00:01Z', message: { id: 'm1', model: 'claude-opus-5-5', content: [{ type: 'tool_use', id: 'wf1', name: 'Workflow', input: { name: 'dev-pipeline-run' } }] } },
+    {
+      type: 'user',
+      timestamp: '2026-01-01T10:00:02Z',
+      message: { content: [{ type: 'tool_result', tool_use_id: 'wf1', content: 'Workflow launched in background.' }] },
+      toolUseResult: { status: 'async_launched', taskId: 'w1', runId: 'wf_abc-1', workflowName: 'dev-pipeline-run' }
+    },
+    { type: 'assistant', timestamp: '2026-01-01T10:00:03Z', message: { id: 'm2', model: 'claude-opus-5-5', content: [{ type: 'text', text: 'Started.' }] } }
+  ]
+  const item = { id: 's', file, title: 't', cwd: dir, repo: 'r', branch: 'main', jira: '', prNumber: null, prUrl: '', startedAt: '2026-01-01T10:00:00Z', lastAt: '2026-01-01T10:00:03Z', costUsd: 0, costComplete: true, model: '', mode: '', status: 'done', sub: '', headless: false } as const
+  const { mkdirSync } = await import('node:fs')
+  mkdirSync(join(dir, 's', 'subagents', 'workflows', 'wf_abc-1'), { recursive: true })
+  writeFileSync(join(dir, 's', 'subagents', 'workflows', 'wf_abc-1', 'journal.jsonl'), '{"type":"launched"}\n')
+  const stepOf = async () => {
+    writeFileSync(file, lines.map((l) => JSON.stringify(l)).join('\n'))
+    const d = await buildDetail({ ...item })
+    return d.turns.flatMap((t) => (t.kind === 'claude' ? t.steps : [])).find((s) => s.workflow)
+  }
+  expect(await stepOf()).toMatchObject({ state: 'running', meta: 'in background', workflow: { runId: 'wf_abc-1', name: 'dev-pipeline-run' } })
+  lines.push({ type: 'user', timestamp: '2026-01-01T10:05:00Z', message: { content: '<task-notification>\n<task-id>w1</task-id>\n<tool-use-id>wf1</tool-use-id>\n<status>completed</status>\n</task-notification>' } })
+  expect(await stepOf()).toMatchObject({ state: 'done', meta: 'finished in background' })
+})

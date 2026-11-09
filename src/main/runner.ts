@@ -10,7 +10,7 @@ import {
   type SDKMessage,
   type SDKUserMessage
 } from '@anthropic-ai/claude-agent-sdk'
-import { EFFORTS, IMAGE_TYPES, isRunnerMode, type AskDecision, type ImageInput, type LiveSession, type PendingAsk, type RunnerEvent, type ModelOption, type RewindResult, type SlashCommandInfo, type StartSession, type TurnSettings } from '../shared/runner'
+import { EFFORTS, IMAGE_TYPES, isRunnerMode, type Activity, type AskDecision, type BackgroundTask, type ImageInput, type LiveSession, type PendingAsk, type RunnerEvent, type ModelOption, type RewindResult, type SlashCommandInfo, type StartSession, type TurnSettings } from '../shared/runner'
 import { memoryDir } from './assistant'
 
 class InputQueue implements AsyncIterable<SDKUserMessage> {
@@ -103,6 +103,43 @@ type Live = {
   effort?: string
   partial?: string
   partialTimer?: ReturnType<typeof setTimeout>
+  tasks: Map<string, BackgroundTask>
+}
+
+const TASK_KINDS: Record<string, string> = { local_agent: 'Subagent', local_workflow: 'Workflow', local_bash: 'Shell', shell: 'Shell', workflow: 'Workflow', subagent: 'Subagent', monitor: 'Monitor' }
+
+export function toolActivity(name: string, input: Record<string, unknown>): Activity {
+  const pick = ['command', 'description', 'file_path', 'pattern', 'url', 'query', 'path', 'prompt'].map((k) => input[k]).find((v) => typeof v === 'string' && v.trim())
+  return { kind: 'tool', tool: name, detail: typeof pick === 'string' ? pick.replace(/\s+/g, ' ').trim().slice(0, 160) : undefined }
+}
+
+export function trackTask(tasks: Map<string, BackgroundTask>, msg: Record<string, unknown>, now = new Date()): boolean {
+  const id = typeof msg['task_id'] === 'string' ? msg['task_id'] : ''
+  if (!id) return false
+  const text = (v: unknown) => (typeof v === 'string' ? v.trim() : '')
+  switch (msg['subtype']) {
+    case 'task_started': {
+      if (msg['ambient'] === true || msg['skip_transcript'] === true) return false
+      const type = text(msg['task_type'])
+      tasks.set(id, { id, kind: TASK_KINDS[type] ?? (type || 'Task'), description: (text(msg['workflow_name']) || text(msg['description']) || 'Task').slice(0, 160), startedAt: now.toISOString(), taskId: id, toolUseId: text(msg['tool_use_id']) || undefined })
+      return true
+    }
+    case 'task_progress': {
+      const t = tasks.get(id)
+      if (!t) return false
+      const usage = msg['usage'] as { tool_uses?: unknown } | undefined
+      tasks.set(id, { ...t, toolUses: typeof usage?.tool_uses === 'number' ? usage.tool_uses : t.toolUses, lastTool: text(msg['last_tool_name']) || t.lastTool })
+      return true
+    }
+    case 'task_notification':
+      return tasks.delete(id)
+    case 'task_updated': {
+      const status = (msg['patch'] as { status?: unknown } | undefined)?.status
+      return typeof status === 'string' && ['completed', 'failed', 'killed'].includes(status) ? tasks.delete(id) : false
+    }
+    default:
+      return false
+  }
 }
 
 export function stateAfterResult(
@@ -145,7 +182,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 type StreamEvent = {
   type: string
-  content_block?: { type: string }
+  content_block?: { type: string; name?: string }
   delta?: { type: string; text?: string }
 }
 
@@ -171,7 +208,7 @@ export class Runner {
   }
 
   private snapshot(l: Live): LiveSession {
-    return { ...l.info, pending: [...l.pending.values()].map(({ resolve: _r, suggestions: _s, ...p }) => p) }
+    return { ...l.info, pending: [...l.pending.values()].map(({ resolve: _r, suggestions: _s, ...p }) => p), background: [...l.tasks.values()] }
   }
 
   private publish(l: Live): void {
@@ -207,6 +244,7 @@ export class Runner {
       startedAt: new Date().toISOString()
     }
 
+    const title = typeof req.title === 'string' ? req.title.trim().slice(0, 120) : ''
     let liveRef: Live | null = null
     const kokpit = await this.assistant()
     const q = query({
@@ -216,9 +254,11 @@ export class Runner {
         model: req.model,
         effort: req.effort,
         resume: req.resumeId,
+        ...(title && !req.resumeId ? { title } : {}),
         ...(req.resumeAt ? { forkSession: true, resumeSessionAt: req.resumeAt } : {}),
         settingSources: ['user', 'project', 'local'],
         includePartialMessages: true,
+        perTaskStopAffordance: true,
         enableFileCheckpointing: true,
         pathToClaudeCodeExecutable: this.executable(),
         plugins: kokpit ? [{ type: 'local', path: kokpit.home }] : undefined,
@@ -262,8 +302,7 @@ export class Runner {
       }
     })
 
-    const title = typeof req.title === 'string' ? req.title.trim().slice(0, 120) : ''
-    const l: Live = { key: tempId, pendingTitle: title, info, input, q, pending, effort: req.effort }
+    const l: Live = { key: tempId, pendingTitle: title, info, input, q, pending, effort: req.effort, tasks: new Map() }
     liveRef = l
     this.live.set(tempId, l)
     this.publish(l)
@@ -307,15 +346,22 @@ export class Runner {
           }
           this.emit({ type: 'text', sessionId: l.key, text: msg.content })
           this.publish(l)
+        } else if (msg.type === 'system' && (msg.subtype === 'task_started' || msg.subtype === 'task_progress' || msg.subtype === 'task_notification' || msg.subtype === 'task_updated')) {
+          if (trackTask(l.tasks, msg as unknown as Record<string, unknown>)) this.publish(l)
         } else if (msg.type === 'stream_event') {
-          this.onStream(l, msg.event as unknown as StreamEvent)
+          if (!msg.parent_tool_use_id) this.onStream(l, msg.event as unknown as StreamEvent)
         } else if (msg.type === 'assistant') {
           if (l.info.state !== 'waiting') l.info.state = 'running'
           for (const block of msg.message.content) {
             if (block.type === 'text' && block.text.trim()) this.emit({ type: 'text', sessionId: l.key, text: block.text })
+            if (block.type === 'tool_use' && !msg.parent_tool_use_id) l.info.activity = toolActivity(block.name, (block.input ?? {}) as Record<string, unknown>)
           }
           this.publish(l)
+        } else if (msg.type === 'user' && !msg.parent_tool_use_id && l.info.activity?.kind === 'tool') {
+          l.info.activity = { kind: 'thinking' }
+          this.publish(l)
         } else if (msg.type === 'result') {
+          l.info.activity = undefined
           this.setPartial(l, '')
           void this.applyTitle(l)
           l.info.costUsd += msg.total_cost_usd
@@ -340,6 +386,15 @@ export class Runner {
   }
 
   private onStream(l: Live, ev: StreamEvent): void {
+    if (ev.type === 'content_block_start') {
+      const t = ev.content_block?.type
+      const next: Activity | undefined =
+        t === 'thinking' || t === 'redacted_thinking' ? { kind: 'thinking' } : t === 'text' ? { kind: 'writing' } : t === 'tool_use' ? { kind: 'tool', tool: ev.content_block?.name } : undefined
+      if (next && (next.kind !== l.info.activity?.kind || next.tool !== l.info.activity?.tool)) {
+        l.info.activity = next
+        this.publish(l)
+      }
+    }
     if (ev.type === 'message_start') this.setPartial(l, '')
     else if (ev.type === 'content_block_start' && ev.content_block?.type === 'text' && l.partial) this.setPartial(l, `${l.partial}\n\n`)
     else if (ev.type === 'content_block_delta' && ev.delta?.type === 'text_delta' && ev.delta.text) this.setPartial(l, `${l.partial ?? ''}${ev.delta.text}`)
@@ -506,6 +561,13 @@ export class Runner {
     if (!l) return
     l.interrupted = true
     await l.q.interrupt()
+  }
+
+  async stopTask(sessionId: unknown, taskId: unknown): Promise<void> {
+    if (typeof sessionId !== 'string' || typeof taskId !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(taskId)) throw new Error('invalid task')
+    const l = this.find(sessionId)
+    if (!l) throw new Error('This session is not running in Kokpit')
+    await l.q.stopTask(taskId)
   }
 
   close(sessionId: unknown): void {

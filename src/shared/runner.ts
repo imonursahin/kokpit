@@ -57,6 +57,10 @@ export type AskDecision = 'allow' | 'deny' | 'always'
 
 export type LiveState = 'starting' | 'running' | 'waiting' | 'idle' | 'error'
 
+export type Activity = { kind: 'thinking' | 'writing' | 'tool'; tool?: string; detail?: string }
+
+export type BackgroundTask = { id: string; kind: string; description: string; startedAt: string; toolUses?: number; lastTool?: string; ref?: string; toolUseId?: string; taskId?: string }
+
 export type LiveSession = {
   sessionId: string
   title?: string
@@ -68,6 +72,8 @@ export type LiveSession = {
   pending: PendingAsk[]
   lastError?: string
   startedAt: string
+  background?: BackgroundTask[]
+  activity?: Activity
 }
 
 export type RunnerEvent =
