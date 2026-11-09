@@ -11,6 +11,7 @@ import { Status } from '@/components/Status'
 import { Markdown } from '@/components/Markdown'
 import { openJiraIssue, PrChip } from '@/components/LinkChips'
 import { TagPicker } from '@/components/TagChip'
+import { getDraft, setDraft } from '@/data/drafts'
 import type { SessionTag } from '@shared/settings'
 import { StepRow, SubagentOpen, type Step } from '@/components/StepRow'
 import { useSlashCommands } from '@/components/SlashCommands'
@@ -457,7 +458,7 @@ function Header({
         {h.pr ? (
           <span style={chip}>
             {h.pr.url || h.jira ? (
-              <PrChip label={h.pr.number} url={h.pr.url ?? ''} jiraKey={h.jira?.key ?? ''} />
+              <PrChip label={h.pr.number} url={h.pr.url ?? ''} jiraKey={h.jira?.key ?? ''} align="left" />
             ) : (
               <>
                 <Icon name="merge" size={14} color="var(--tx3)" />
@@ -1692,6 +1693,7 @@ function EmptyPanel({ text }: { text: string }) {
 
 type LiveProps = {
   live?: LiveSession
+  draftKey?: string
   tags?: SessionTag[]
   tagId?: string
   onTag?: (tagId: string | null) => void
@@ -1741,6 +1743,7 @@ function Detail({
   onAddToJira,
   onAttach,
   onRename,
+  draftKey,
   tags,
   tagId,
   onTag,
@@ -1776,7 +1779,10 @@ function Detail({
   const [diffCollapsed, setDiffCollapsed] = useState(false)
   const [planView, setPlanView] = useState<'edit' | 'preview'>('preview')
   const [planText, setPlanText] = useState(() => data.planMarkdown ?? (data.plan ? planToMarkdown(data.plan) : ''))
-  const [text, setText] = useState('')
+  const [text, setText] = useState(() => (draftKey ? getDraft(draftKey) : ''))
+  useEffect(() => {
+    if (draftKey) setDraft(draftKey, text)
+  }, [draftKey, text])
   const [outbox, setOutbox] = useState<{ id: number; text: string; before: number; uuid?: string }[]>([])
   const sentTexts = useMemo(() => data.turns.flatMap((t) => (t.kind === 'user' ? [richToText(t.text)] : [])), [data.turns])
   const countSent = (t: string) => sentTexts.filter((x) => sameMessage(x, t)).length
@@ -2743,6 +2749,7 @@ export function RealSessionDetailPage({
     <SubagentOpen.Provider value={setAgentId}>
       <Detail
         key={data.id}
+        draftKey={data.id}
         data={view}
         onBack={onBack}
         live={live}

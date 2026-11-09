@@ -22,13 +22,14 @@ function useHoverLoad<T>(key: string, load: () => Promise<T>) {
   const [open, setOpen] = useState(false)
   const [data, setData] = useState<Load<T>>({ state: 'loading' })
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const show = () => {
+  const show = (delay = 350) => {
+    if (timer.current) clearTimeout(timer.current)
     timer.current = setTimeout(() => {
       setOpen(true)
       cached(key, load)
         .then((d) => setData({ state: 'ready', data: d }))
         .catch((err: Error) => setData({ state: 'error', message: cleanError(err.message) }))
-    }, 350)
+    }, delay)
   }
   const hide = () => {
     if (timer.current) clearTimeout(timer.current)
@@ -40,9 +41,9 @@ function useHoverLoad<T>(key: string, load: () => Promise<T>) {
   return { open, data, show, hide }
 }
 
-function Popover({ children, width }: { children: ReactNode; width: number }) {
+function Popover({ children, width, align = 'right' }: { children: ReactNode; width: number; align?: 'left' | 'right' }) {
   return (
-    <span role="tooltip" style={{ display: 'block', position: 'absolute', top: '100%', right: 0, paddingTop: 6, zIndex: 40 }}>
+    <span role="tooltip" style={{ display: 'block', position: 'absolute', top: '100%', [align]: 0, paddingTop: 6, zIndex: 40 }}>
       <span
         onClick={(e) => e.stopPropagation()}
         style={{
@@ -85,7 +86,7 @@ export function JiraChip({ jiraKey }: { jiraKey: string }) {
   return (
     <span
       style={{ position: 'relative', display: 'inline-flex' }}
-      onMouseEnter={show}
+      onMouseEnter={() => show()}
       onMouseLeave={hide}
       onClick={(e) => {
         e.stopPropagation()
@@ -141,7 +142,7 @@ function checksLine(c: PullRequestInfo['checks']): [string, string] {
   return ['Checks passed', 'var(--ok)']
 }
 
-export function PrChip({ label, url, jiraKey }: { label: string; url: string; jiraKey: string }) {
+export function PrChip({ label, url, jiraKey, align }: { label: string; url: string; jiraKey: string; align?: 'left' | 'right' }) {
   const api = window.kokpit
   const load = async (): Promise<PullRequestInfo[]> => {
     if (!api) return []
@@ -155,15 +156,18 @@ export function PrChip({ label, url, jiraKey }: { label: string; url: string; ji
   return (
     <span
       style={{ position: 'relative', display: 'inline-flex' }}
-      onMouseEnter={show}
+      onMouseEnter={() => show()}
       onMouseLeave={hide}
       onClick={(e) => {
         e.stopPropagation()
-        void cached(key, load).then((list) => {
-          if (list.length > 1) return
-          const target = list[0]?.url ?? url
-          if (target) open(target)
-        })
+        void cached(key, load).then(
+          (list) => {
+            if (list.length > 1) return show(0)
+            const target = list[0]?.url ?? url
+            if (target) open(target)
+          },
+          () => url && open(url)
+        )
       }}
     >
       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, font: "12px/1 'Geist Mono',monospace", color: 'var(--tx2)', cursor: many ? 'default' : 'pointer' }}>
@@ -171,7 +175,7 @@ export function PrChip({ label, url, jiraKey }: { label: string; url: string; ji
         {label}
       </span>
       {isOpen && (
-        <Popover width={380}>
+        <Popover width={380} align={align}>
           <span style={{ padding: '10px 14px 6px', fontSize: 11.5, color: 'var(--tx3)' }}>
             {jiraKey ? `Pull requests for ${jiraKey}` : 'Pull request'}
           </span>
