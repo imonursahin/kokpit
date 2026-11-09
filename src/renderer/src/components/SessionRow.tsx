@@ -36,7 +36,7 @@ export function SessionRow({
       className="menu-item"
       onClick={onOpen}
       onKeyDown={(e) => {
-        if (e.key === 'Enter') onOpen?.()
+        if (e.key === 'Enter' && e.target === e.currentTarget) onOpen?.()
       }}
       style={{
         display: 'grid',

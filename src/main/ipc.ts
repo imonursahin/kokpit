@@ -3,9 +3,9 @@ import { watch, type FSWatcher } from 'node:fs'
 import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { readFile as readFileAsync, rm, writeFile as writeFileAsync } from 'node:fs/promises'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { promisify } from 'node:util'
-import type { SessionIndexItem } from '../shared/sessionIndex'
+import { jiraKeyFrom, type SessionIndexItem } from '../shared/sessionIndex'
 import type { MyPullRequests } from '../shared/integrations'
 import type { SessionStatus } from '../shared/types'
 import { prNotices, sessionNotices, type Notice } from './notifier'
@@ -109,15 +109,39 @@ export function registerIpc(
   })
   const withLive = (items: SessionIndexItem[]): SessionIndexItem[] => {
     const live = new Map(runner.list().map((l) => [l.sessionId, l]))
-    return items.map((item) => {
+    const known = new Set(items.map((i) => i.id))
+    const unsaved: SessionIndexItem[] = [...live.values()]
+      .filter((l) => !known.has(l.sessionId))
+      .map((l) => ({
+        id: l.sessionId,
+        file: '',
+        title: l.title || 'New session',
+        cwd: l.cwd,
+        repo: basename(l.cwd),
+        branch: '',
+        jira: jiraKeyFrom(l.title ?? ''),
+        prNumber: null,
+        prUrl: '',
+        startedAt: l.startedAt,
+        lastAt: l.startedAt,
+        costUsd: l.costUsd,
+        costComplete: true,
+        model: l.model,
+        mode: l.mode,
+        status: 'done',
+        sub: l.state === 'idle' ? 'No messages yet' : '',
+        headless: false
+      }))
+    const alive = readCliStatuses()
+    return [...unsaved, ...items].map((item) => {
       const i = item.headless && kokpitSessions.has(item.id) ? { ...item, headless: false } : item
       const l = live.get(i.id)
-      if (!l) return i
+      if (!l) return (i.status === 'running' || i.status === 'waiting') && !alive.has(i.id) ? { ...i, status: 'done' } : i
       const bg = l.background?.[0]
       const status = l.state === 'waiting' ? 'waiting' : l.state === 'error' ? 'error' : l.state === 'idle' && !bg ? 'done' : 'running'
       const ask = l.pending[0]
       const sub = ask ? `${ask.title}: ${ask.detail}` : l.state === 'idle' && bg ? `In background: ${bg.kind} · ${bg.description}` : i.sub
-      return { ...i, status, sub: sub.slice(0, 200) }
+      return { ...i, status, sub: sub.slice(0, 200), askId: ask?.requestId }
     })
   }
   let timer: NodeJS.Timeout | null = null
@@ -185,7 +209,7 @@ export function registerIpc(
   })
   ipcMain.handle('sessions:detail', async (_e, id: unknown, maxTurns: unknown) => {
     if (typeof id !== 'string') throw new Error('session id must be a string')
-    const item = store.items().find((i) => i.id === id) ?? (await refresh()).find((i) => i.id === id)
+    const item = withLive(store.items()).find((i) => i.id === id) ?? (await refresh()).find((i) => i.id === id)
     if (!item) throw new Error(`session ${id} not found`)
     const limit = typeof maxTurns === 'number' && Number.isInteger(maxTurns) ? Math.min(5000, Math.max(20, maxTurns)) : undefined
     const processAlive = runner.list().some((l) => l.sessionId === id) || readCliStatuses().has(id)
@@ -265,7 +289,7 @@ export function registerIpc(
   ipcMain.handle('update:check', () => refreshUpdate())
   ipcMain.handle('app:relaunch', () => {
     app.relaunch()
-    app.exit(0)
+    app.quit()
   })
   ipcMain.handle('term:write', (_e, id: unknown, data: unknown) => terminals.write(id, data))
   ipcMain.handle('term:resize', (_e, id: unknown, cols: unknown, rows: unknown) => terminals.resize(id, cols, rows))
@@ -356,11 +380,10 @@ export function registerIpc(
 
   ipcMain.handle('settings:get', () => settings.get())
   ipcMain.handle('settings:update', async (_e, patch: unknown) => {
-    const next = await settings.update(patch)
+    const next = await settings.update(patch, (candidate) => ensureAssistantHome(assistantHome(candidate.assistantHome)))
     void broadcast()
     claudeExecutable = next.claudeExecutable
     home = assistantHome(next.assistantHome)
-    await ensureAssistantHome(home)
     return next
   })
   ipcMain.handle('app:info', () => ({
@@ -404,7 +427,7 @@ export function registerIpc(
     )
   }
   ipcMain.on('tray:unread', onUnread)
-  ipcMain.handle('tray:refreshUsage', () => readPlan(0))
+  ipcMain.handle('tray:refreshUsage', () => readPlan(5_000))
   const pollPlan = () =>
     void settings.get().then((s) => {
       if (s.menuBar) readPlan(0).catch(() => undefined)

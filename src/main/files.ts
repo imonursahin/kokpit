@@ -28,8 +28,8 @@ async function walk(root: string, dir: string, out: string[], depth: number): Pr
 
 async function load(cwd: string): Promise<string[]> {
   try {
-    const { stdout } = await run('git', ['ls-files', '-co', '--exclude-standard'], { cwd, maxBuffer: 64 * 1024 * 1024, timeout: 10_000 })
-    return stdout.split('\n').filter(Boolean).slice(0, MAX_FILES)
+    const { stdout } = await run('git', ['ls-files', '-z', '-co', '--exclude-standard'], { cwd, maxBuffer: 64 * 1024 * 1024, timeout: 10_000 })
+    return stdout.split('\0').filter(Boolean).slice(0, MAX_FILES)
   } catch {
     const out: string[] = []
     await walk(cwd, cwd, out, 0)

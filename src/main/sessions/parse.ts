@@ -112,7 +112,9 @@ function isNoisePrompt(text: string): boolean {
     t.startsWith('<local-command') ||
     t.startsWith('<system-reminder>') ||
     t.startsWith('Caveat:') ||
-    t.startsWith('[Request interrupted')
+    t.startsWith('[Request interrupted') ||
+    t.startsWith('<task-notification>') ||
+    t.startsWith('This session is being continued from a previous conversation')
   )
 }
 
@@ -212,12 +214,14 @@ export class SessionAccumulator {
       this.s.firstPrompt = firstLine(command)
       this.s.firstPromptIsCommand = true
     }
-    if (!isNoisePrompt(text)) {
+    if (!isNoisePrompt(text) && o['isCompactSummary'] !== true) {
       if (!this.s.firstPrompt || this.s.firstPromptIsCommand) {
         this.s.firstPrompt = firstLine(text)
         this.s.firstPromptIsCommand = false
       }
       this.s.lastStopReason = ''
+      this.s.lastWasApiError = false
+      this.pending.clear()
     }
     this.s.pendingTool = [...this.pending.values()].at(-1) ?? ''
   }
@@ -230,6 +234,7 @@ export class SessionAccumulator {
     if (model && model !== '<synthetic>') this.s.model = model
     this.s.lastWasApiError = o['isApiErrorMessage'] === true
     if (str(message['stop_reason'])) this.s.lastStopReason = str(message['stop_reason'])
+    if (str(message['stop_reason']) === 'end_turn') this.pending.clear()
 
     if (id && !this.seenMessages.has(id) && isObj(message['usage']) && model && model !== '<synthetic>') {
       this.seenMessages.add(id)

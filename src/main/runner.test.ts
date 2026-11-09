@@ -306,3 +306,36 @@ test('the session reports what Claude is doing right now: thinking, writing or r
   await vi.waitFor(() => expect(now()).toBeUndefined())
   runner.dispose()
 })
+
+test('a queued message keeps a waiting session waiting', async () => {
+  const sdk = await import('@anthropic-ai/claude-agent-sdk')
+  let wake: () => void = () => {}
+  const msgs: unknown[] = []
+  let canUse: ((name: string, input: unknown, opts: { signal: AbortSignal; suggestions?: unknown[] }) => Promise<unknown>) | undefined
+  const feed = (m: unknown) => {
+    msgs.push(m)
+    wake()
+  }
+  vi.mocked(sdk.query).mockImplementation(((args: { options: { canUseTool: typeof canUse } }) => {
+    canUse = args.options.canUseTool
+    return {
+      close: vi.fn(),
+      interrupt: vi.fn(async () => undefined),
+      async *[Symbol.asyncIterator]() {
+        while (true) {
+          if (msgs.length) yield msgs.shift()
+          else await new Promise<void>((r) => (wake = r))
+        }
+      }
+    }
+  }) as never)
+  const { Runner } = await import('./runner')
+  const runner = new Runner(() => {})
+  await runner.start({ cwd: process.cwd(), prompt: 'go', resumeId: '22222222-2222-2222-2222-222222222222' })
+  const id = '22222222-2222-2222-2222-222222222222'
+  void canUse?.('Bash', { command: 'rm -rf build' }, { signal: new AbortController().signal })
+  await vi.waitFor(() => expect(runner.list().find((l) => l.sessionId === id)?.state).toBe('waiting'))
+  await runner.send(id, 'also check the tests')
+  expect(runner.list().find((l) => l.sessionId === id)?.state).toBe('waiting')
+  runner.dispose()
+})

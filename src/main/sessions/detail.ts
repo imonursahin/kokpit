@@ -247,6 +247,7 @@ export function hookStep(att: Obj): DetailStep | null {
 }
 
 function formatDuration(ms: number): string {
+  if (!Number.isFinite(ms)) return ''
   const s = Math.max(0, Math.round(ms / 1000))
   if (s < 60) return `${s}s`
   const m = Math.round(s / 60)
@@ -319,7 +320,7 @@ function transcriptFiles(edits: EditRecord[], base: string): DetailFile[] {
   return [...byPath.values()]
 }
 
-const PLAN_FILE = /(^|\/)([^/]*plan[^/]*\.md|plans\/[^/]+\.md)$/i
+const PLAN_FILE = /(^|\/)([A-Z][A-Z0-9]+-\d+-)?plan\.md$|\/\.claude\/plans\/[^/]+\.md$/i
 
 export async function buildDetail(item: SessionIndexItem, nowMs = Date.now(), opts: { sidechain?: boolean; maxTurns?: number; processAlive?: boolean } = {}): Promise<SessionDetailData> {
   const maxTurns = opts.maxTurns ?? MAX_TURNS
@@ -395,7 +396,7 @@ export async function buildDetail(item: SessionIndexItem, nowMs = Date.now(), op
           step.state = isError ? 'error' : 'done'
           step.meta = resultMeta(step, text, isError)
           const launched = isObj(o['toolUseResult']) ? o['toolUseResult'] : {}
-          if (!isError && launched['status'] === 'async_launched') background.add(str(b['tool_use_id']))
+          if (!isError && (launched['status'] === 'async_launched' || str(launched['backgroundTaskId']))) background.add(str(b['tool_use_id']))
           const taskId = str(launched['taskId']) || str(launched['backgroundTaskId'])
           if (!isError && taskId) step.taskId = taskId
           if (!isError && WORKFLOW_RUN.test(str(launched['runId']))) step.workflow = { runId: str(launched['runId']), name: str(launched['workflowName']) }
@@ -538,12 +539,14 @@ export async function buildDetail(item: SessionIndexItem, nowMs = Date.now(), op
   }
   closeTurn()
 
-  const running = item.status === 'running'
+  const running = item.status === 'running' || item.status === 'waiting'
   if (!running) {
     for (const [id, s] of steps) {
       if (s.state !== 'running') continue
-      const live = opts.processAlive !== false && background.has(id) && s.workflow && (await workflowActive(item.file, s.workflow.runId, nowMs))
-      if (!live) s.state = 'done'
+      const live = background.has(id) && (s.workflow ? opts.processAlive !== false && (await workflowActive(item.file, s.workflow.runId, nowMs)) : opts.processAlive === true)
+      if (live) continue
+      s.state = 'done'
+      if (background.has(id) && s.meta === 'in background') s.meta = 'stopped'
     }
   }
   for (const meta of await subagentMetas(item.file, nowMs)) {
@@ -553,7 +556,7 @@ export async function buildDetail(item: SessionIndexItem, nowMs = Date.now(), op
     const report = reports.get(meta.id)
     if (report) step.output = clip(report, MAX_OUTPUT)
     else if (step.output?.startsWith('Async agent launched')) step.output = undefined
-    step.state = !meta.finished && meta.active && !report ? 'running' : step.state === 'error' ? 'error' : 'done'
+    step.state = step.state === 'running' && !meta.finished && meta.active && !report ? 'running' : step.state === 'error' ? 'error' : 'done'
   }
   for (const s of steps.values()) {
     if (s.state === 'running') continue

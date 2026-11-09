@@ -1,6 +1,7 @@
 import { useEffect, useState, type ClipboardEvent } from 'react'
 import { IMAGE_TYPES, type ImageInput } from '@shared/runner'
 import { Icon } from './primitives'
+import { onSessionMoved } from '@/data/drafts'
 
 type Pasted = ImageInput & { id: string; url: string }
 
@@ -12,6 +13,11 @@ export function withImageMarkers(text: string, count: number): string {
 }
 
 const kept = new Map<string, Pasted[]>()
+onSessionMoved((from, to) => {
+  const imgs = kept.get(from)
+  if (imgs?.length && !kept.get(to)?.length) kept.set(to, imgs)
+  kept.delete(from)
+})
 
 export function usePastedImages(key?: string) {
   const [images, setImages] = useState<Pasted[]>(() => (key ? (kept.get(key) ?? []) : []))

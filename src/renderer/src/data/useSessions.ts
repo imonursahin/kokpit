@@ -14,6 +14,7 @@ export function toSummary(item: SessionIndexItem, nowMs: number): SessionSummary
     askType: 'permission',
     title: item.title,
     sub: item.sub,
+    askId: item.askId,
     repo: item.repo,
     branch: item.branch && item.branch !== 'HEAD' ? item.branch : '—',
     jira: item.jira,

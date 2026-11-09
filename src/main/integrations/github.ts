@@ -89,17 +89,26 @@ async function reviewsFor(token: string, repo: string, number: number): Promise<
   return summarizeReviews(Array.isArray(res) ? res : [])
 }
 
+const lastKnown = new Map<string, PullRequestInfo>()
+
 async function pullInfo(c: GithubCreds, repo: string, number: number): Promise<PullRequestInfo> {
-  const pr = await fetchJson<Obj>(`${API}/repos/${repo}/pulls/${number}`, { headers: headers(c.token) })
+  const key = `${repo}#${number}`
+  const known = lastKnown.get(key)
+  const pr = await fetchJson<Obj>(`${API}/repos/${repo}/pulls/${number}`, { headers: headers(c.token) }).catch((err: unknown) => {
+    if (known) return null
+    throw err
+  })
+  if (!pr && known) return known
+  if (!pr) throw new Error(`Could not read ${key}`)
   const head = isObj(pr['head']) ? pr['head'] : {}
   const base = isObj(pr['base']) ? pr['base'] : {}
   const merged = !!pr['merged_at']
   const state = merged ? 'Merged' : pr['state'] === 'closed' ? 'Closed' : pr['draft'] === true ? 'Draft' : 'Open'
   const [checks, reviews] = await Promise.all([
-    checksFor(c.token, repo, str(head['sha'])).catch(() => ({ total: 0, passed: 0, failed: 0, pending: 0, failedNames: [] })),
-    reviewsFor(c.token, repo, number).catch(() => ({ approved: 0, changesRequested: 0 }))
+    checksFor(c.token, repo, str(head['sha'])).catch(() => known?.checks ?? { total: 0, passed: 0, failed: 0, pending: 0, failedNames: [] }),
+    reviewsFor(c.token, repo, number).catch(() => known?.reviews ?? { approved: 0, changesRequested: 0 })
   ])
-  return {
+  const info: PullRequestInfo = {
     number: Number(pr['number']),
     repo,
     title: str(pr['title']),
@@ -112,6 +121,8 @@ async function pullInfo(c: GithubCreds, repo: string, number: number): Promise<P
     author: isObj(pr['user']) ? str(pr['user']['login']) : '',
     updatedAt: str(pr['updated_at'])
   }
+  lastKnown.set(key, info)
+  return info
 }
 
 const PR_URL = /^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/pull\/(\d+)\/?$/

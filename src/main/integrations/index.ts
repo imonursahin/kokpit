@@ -22,7 +22,7 @@ export class Integrations {
         return v
       },
       (err: unknown) => {
-        const expired = err instanceof HttpError && (err.status === 401 || err.status === 403)
+        const expired = err instanceof HttpError && err.status === 401
         this.health[id] = { ...this.health[id], expired, error: (err as Error).message }
         throw err
       }

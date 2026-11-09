@@ -1,4 +1,5 @@
-import { exec } from 'node:child_process'
+import { spawn } from 'node:child_process'
+import { StringDecoder } from 'node:string_decoder'
 import { existsSync, statSync } from 'node:fs'
 import { appendFile, mkdir, readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
@@ -17,11 +18,46 @@ export function runShell(cwd: unknown, command: unknown, timeoutMs = 120_000): P
   const dir = assertDir(cwd)
   if (typeof command !== 'string' || !command.trim() || command.length > 4000) throw new Error('invalid command')
   return new Promise((resolve) => {
-    exec(command, { cwd: dir, shell: '/bin/zsh', timeout: timeoutMs, maxBuffer: 8 * 1024 * 1024, env: process.env }, (err, stdout, stderr) => {
-      const all = `${stdout}${stderr ? (stdout ? '\n' : '') + stderr : ''}`.replace(/\x1b\[[0-9;]*m/g, '')
-      const code = err ? (typeof (err as { code?: unknown }).code === 'number' ? ((err as { code: number }).code) : null) : 0
-      resolve({ command, code, output: all.length > MAX_OUTPUT ? all.slice(-MAX_OUTPUT) : all, truncated: all.length > MAX_OUTPUT })
+    const child = spawn('/bin/zsh', ['-c', command], { cwd: dir, env: process.env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] })
+    const out = new StringDecoder('utf8')
+    let text = ''
+    let cut = false
+    let done = false
+    const add = (d: Buffer) => {
+      text += out.write(d)
+      if (text.length > MAX_OUTPUT * 2) {
+        text = text.slice(-MAX_OUTPUT)
+        cut = true
+      }
+    }
+    const killGroup = (signal: NodeJS.Signals) => {
+      try {
+        if (child.pid) process.kill(-child.pid, signal)
+      } catch {
+        return
+      }
+    }
+    const finish = (code: number | null) => {
+      if (done) return
+      done = true
+      clearTimeout(timer)
+      child.stdout.destroy()
+      child.stderr.destroy()
+      const all = (text + out.end()).replace(/\x1b\[[0-9;]*m/g, '')
+      resolve({ command, code, output: all.length > MAX_OUTPUT ? all.slice(-MAX_OUTPUT) : all, truncated: cut || all.length > MAX_OUTPUT })
+    }
+    const timer = setTimeout(() => {
+      killGroup('SIGKILL')
+      finish(null)
+    }, timeoutMs)
+    child.stdout.on('data', add)
+    child.stderr.on('data', add)
+    child.on('error', (err) => {
+      text += `${err.message}\n`
+      finish(null)
     })
+    child.on('close', (code) => finish(code))
+    child.on('exit', (code) => setTimeout(() => finish(code), 300))
   })
 }
 

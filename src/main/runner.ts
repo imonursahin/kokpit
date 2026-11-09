@@ -189,6 +189,7 @@ type StreamEvent = {
 
 export class Runner {
   private live = new Map<string, Live>()
+  private starting = new Set<string>()
   private commandCache = new Map<string, { at: number; list: Promise<SlashCommandInfo[]> }>()
   private modelCache: { at: number; list: Promise<ModelOption[]> } | null = null
   private alias = new Map<string, string>()
@@ -228,6 +229,16 @@ export class Runner {
       await this.send(req.resumeId, req.prompt, images, { model: req.model, effort: req.effort })
       return { tempId: req.resumeId }
     }
+    if (req.resumeId && !req.resumeAt && this.starting.has(req.resumeId)) throw new Error('This session is already starting')
+    if (req.resumeId && !req.resumeAt) this.starting.add(req.resumeId)
+    try {
+      return await this.launch(req, images, hasPrompt)
+    } finally {
+      if (req.resumeId) this.starting.delete(req.resumeId)
+    }
+  }
+
+  private async launch(req: StartSession, images: ImageInput[], hasPrompt: boolean): Promise<{ tempId: string }> {
 
     const tempId = req.resumeId && !req.resumeAt ? req.resumeId : `pending-${randomUUID()}`
     const input = new InputQueue()
@@ -295,7 +306,7 @@ export class Runner {
             opts.signal.addEventListener('abort', () => {
               if (l.pending.delete(requestId)) {
                 resolve({ behavior: 'deny', message: 'Cancelled' })
-                l.info.state = 'running'
+                if (!l.pending.size) l.info.state = 'running'
                 this.publish(l)
               }
             })
@@ -315,7 +326,7 @@ export class Runner {
     if (l.key === sessionId) return
     const old = l.key
     this.live.delete(old)
-    this.alias.set(old, sessionId)
+    if (old.startsWith('pending-')) this.alias.set(old, sessionId)
     l.key = sessionId
     l.info.sessionId = sessionId
     for (const p of l.pending.values()) p.sessionId = sessionId
@@ -389,9 +400,11 @@ export class Runner {
     } finally {
       for (const p of l.pending.values()) p.resolve({ behavior: 'deny', message: 'Session ended' })
       l.pending.clear()
-      this.publish(l)
-      this.live.delete(l.key)
-      this.emit({ type: 'ended', sessionId: l.key })
+      if (this.live.get(l.key) === l) {
+        this.publish(l)
+        this.live.delete(l.key)
+        this.emit({ type: 'ended', sessionId: l.key })
+      }
     }
   }
 
@@ -405,7 +418,13 @@ export class Runner {
         this.publish(l)
       }
     }
-    if (ev.type === 'message_start') this.setPartial(l, '')
+    if (ev.type === 'message_start') {
+      this.setPartial(l, '')
+      if (l.info.state === 'idle') {
+        l.info.state = 'running'
+        this.publish(l)
+      }
+    }
     else if (ev.type === 'content_block_start' && ev.content_block?.type === 'text' && l.partial) this.setPartial(l, `${l.partial}\n\n`)
     else if (ev.type === 'content_block_delta' && ev.delta?.type === 'text_delta' && ev.delta.text) this.setPartial(l, `${l.partial ?? ''}${ev.delta.text}`)
   }
@@ -431,7 +450,7 @@ export class Runner {
     try {
       await renameSession(l.key, title)
       if (l.pendingTitle === title) l.pendingTitle = ''
-      this.emit({ type: 'state', session: this.snapshot(l) })
+      if (this.live.get(l.key) === l) this.emit({ type: 'state', session: this.snapshot(l) })
     } catch (err) {
       this.log(`rename ${l.key} not applied yet: ${(err as Error).message}`)
     }
@@ -452,7 +471,7 @@ export class Runner {
       l.effort = s.effort
     }
     const uuid = l.input.push(text, pics)
-    l.info.state = 'running'
+    if (l.info.state !== 'waiting') l.info.state = 'running'
     this.publish(l)
     return uuid
   }
@@ -568,9 +587,14 @@ export class Runner {
   async interrupt(sessionId: unknown): Promise<void> {
     if (typeof sessionId !== 'string') throw new Error('invalid session id')
     const l = this.find(sessionId)
-    if (!l) return
+    if (!l || (l.info.state !== 'running' && l.info.state !== 'waiting' && l.info.state !== 'starting')) return
     l.interrupted = true
-    await l.q.interrupt()
+    try {
+      await l.q.interrupt()
+    } catch (err) {
+      l.interrupted = false
+      throw err
+    }
   }
 
   async stopTask(sessionId: unknown, taskId: unknown): Promise<void> {

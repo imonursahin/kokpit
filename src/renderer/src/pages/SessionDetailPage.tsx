@@ -227,8 +227,17 @@ function ComposerChip({
     const close = (e: MouseEvent) => {
       if (!ref.current?.contains(e.target as Node)) setOpen(false)
     }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      e.preventDefault()
+      setOpen(false)
+    }
     window.addEventListener('mousedown', close)
-    return () => window.removeEventListener('mousedown', close)
+    window.addEventListener('keydown', onKey, true)
+    return () => {
+      window.removeEventListener('mousedown', close)
+      window.removeEventListener('keydown', onKey, true)
+    }
   }, [open])
 
   return (
@@ -255,6 +264,7 @@ function ComposerChip({
       </button>
       {open && (
         <div
+          role="menu"
           style={{
             position: 'absolute',
             bottom: 34,
@@ -525,6 +535,10 @@ function BackgroundRows({ tasks, onStop }: { tasks: BackgroundTask[]; onStop?: (
         <div
           key={t.id}
           role={t.ref && open ? 'button' : undefined}
+          tabIndex={t.ref && open ? 0 : undefined}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && e.target === e.currentTarget && t.ref) open?.(t.ref)
+          }}
           title={t.ref && open ? 'Open' : undefined}
           className={t.ref && open ? 'step-row' : undefined}
           onClick={() => t.ref && open?.(t.ref)}
@@ -931,59 +945,6 @@ function WorkflowModal({ sessionId, runId, onOpenStep, onClose }: { sessionId: s
   )
 }
 
-const STEP_NOUN: Record<Step['kind'], [string, string]> = {
-  command: ['command', 'commands'],
-  read: ['read', 'reads'],
-  edit: ['edit', 'edits'],
-  create: ['new file', 'new files'],
-  search: ['search', 'searches'],
-  fetch: ['fetch', 'fetches'],
-  jira: ['Jira call', 'Jira calls'],
-  todo: ['todo update', 'todo updates']
-}
-
-function stepSummary(steps: Step[]): string {
-  const counts = new Map<Step['kind'], number>()
-  for (const st of steps) counts.set(st.kind, (counts.get(st.kind) ?? 0) + 1)
-  const parts = [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([k, n]) => `${n} ${STEP_NOUN[k][n === 1 ? 0 : 1]}`)
-  return `${steps.length} steps · ${parts.join(', ')}`
-}
-
-function StepGroup({ steps }: { steps: Step[] }) {
-  const [open, setOpen] = useState(false)
-  if (steps.length <= 3)
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column' }}>
-        {steps.map((st, i) => (
-          <StepRow key={i} step={st} />
-        ))}
-      </div>
-    )
-  const running = steps.filter((st) => st.state === 'running')
-  const errors = steps.filter((st) => st.state === 'error').length
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column' }}>
-      <button
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className="step-row"
-        style={{ display: 'flex', alignItems: 'center', gap: 8, height: 28, padding: '0 8px', margin: '0 -8px', borderRadius: 6, fontSize: 12.5, color: 'var(--tx2)', textAlign: 'left' }}
-      >
-        <Icon name={running.length ? 'progress_activity' : 'checklist'} size={16} color={running.length ? 'var(--run)' : 'var(--tx3)'} />
-        <span>{stepSummary(steps)}</span>
-        {errors > 0 && <span style={{ color: 'var(--err)' }}>· {errors} failed</span>}
-        <span style={{ flex: 1 }} />
-        <Icon name={open ? 'expand_less' : 'expand_more'} size={18} color="var(--tx3)" />
-      </button>
-      {(open ? steps : running).map((st, i) => (
-        <div key={i} style={{ paddingLeft: open ? 14 : 0 }}>
-          <StepRow step={st} />
-        </div>
-      ))}
-    </div>
-  )
-}
-
 function lastClaudeText(turns: Turn[]): string {
   const last = [...turns].reverse().find((t) => t.kind === 'claude')
   if (!last || last.kind !== 'claude') return ''
@@ -1014,22 +975,68 @@ function ThinkingPart({ text }: { text: string }) {
   )
 }
 
-function OrderedParts({ parts }: { parts: TurnPart[] }) {
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
+
+function WorkBlock({ parts, expanded }: { parts: TurnPart[]; expanded: boolean }) {
+  const [open, setOpen] = useState(expanded)
+  useEffect(() => setOpen(expanded), [expanded])
+  const steps = parts.flatMap((p) => (p.kind === 'steps' ? p.steps : []))
+  const notes = parts.filter((p) => p.kind === 'text').length
+  const thoughts = parts.filter((p) => p.kind === 'thinking').length
+  const errors = steps.filter((st) => st.state === 'error').length
+  const running = steps.filter((st) => st.state === 'running')
+  const summary = [steps.length ? plural(steps.length, 'step') : '', notes ? plural(notes, 'note') : '', thoughts && !steps.length && !notes ? 'thinking' : '']
+    .filter(Boolean)
+    .join(' · ')
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', border: '1px solid var(--line-soft)', borderRadius: 10, background: 'var(--hover)', padding: '2px 12px' }}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="step-row"
+        style={{ display: 'flex', alignItems: 'center', gap: 8, height: 32, padding: '0 8px', margin: '0 -8px', borderRadius: 6, fontSize: 12.5, color: 'var(--tx3)', textAlign: 'left', cursor: 'pointer' }}
+      >
+        <Icon name={running.length ? 'progress_activity' : 'construction'} size={16} color={running.length ? 'var(--run)' : 'var(--tx3)'} />
+        <span style={{ fontWeight: 500, color: 'var(--tx2)' }}>Work</span>
+        {summary && <span>{summary}</span>}
+        {errors > 0 && <span style={{ color: 'var(--err)' }}>· {errors} failed</span>}
+        <span style={{ flex: 1 }} />
+        <Icon name={open ? 'expand_less' : 'expand_more'} size={18} color="var(--tx3)" />
+      </button>
+      {open ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '2px 0 8px' }}>
+          {parts.map((p, i) =>
+            p.kind === 'steps' ? (
+              <div key={i} style={{ display: 'flex', flexDirection: 'column' }}>
+                {p.steps.map((st, j) => (
+                  <StepRow key={j} step={st} />
+                ))}
+              </div>
+            ) : p.kind === 'thinking' ? (
+              <ThinkingPart key={i} text={p.text} />
+            ) : (
+              <div key={i} style={{ padding: '2px 0' }}>
+                <Markdown source={p.text} size={12.5} muted />
+              </div>
+            )
+          )}
+        </div>
+      ) : (
+        running.map((st, i) => <StepRow key={i} step={st} />)
+      )}
+    </div>
+  )
+}
+
+function OrderedParts({ parts, active }: { parts: TurnPart[]; active?: boolean }) {
   const lastText = parts.map((p) => p.kind).lastIndexOf('text')
   const final = lastText >= 0 && parts.slice(lastText + 1).every((p) => p.kind === 'thinking') ? lastText : -1
+  const answer = final >= 0 ? parts[final] : undefined
+  const work = parts.filter((_, i) => i !== final)
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      {parts.map((p, i) =>
-        p.kind === 'steps' ? (
-          <StepGroup key={i} steps={p.steps} />
-        ) : p.kind === 'thinking' ? (
-          <ThinkingPart key={i} text={p.text} />
-        ) : i === final ? (
-          <Markdown key={i} source={p.text} size={13.5} />
-        ) : (
-          <Markdown key={i} source={p.text} size={12.5} muted />
-        )
-      )}
+      {work.length > 0 && <WorkBlock parts={work} expanded={!!active || !answer} />}
+      {answer?.kind === 'text' && <Markdown source={answer.text} size={13.5} />}
     </div>
   )
 }
@@ -1037,7 +1044,7 @@ function OrderedParts({ parts }: { parts: TurnPart[] }) {
 type RewindTarget = { uuid?: string; parentUuid: string; text: string }
 const RewindOpen = createContext<((t: RewindTarget) => void) | null>(null)
 
-function TurnView({ turn, onLoadEarlier }: { turn: Turn; onLoadEarlier?: () => void }) {
+function TurnView({ turn, onLoadEarlier, active }: { turn: Turn; onLoadEarlier?: () => void; active?: boolean }) {
   const rewind = useContext(RewindOpen)
   if (turn.kind === 'earlier')
     return (
@@ -1114,7 +1121,7 @@ function TurnView({ turn, onLoadEarlier }: { turn: Turn; onLoadEarlier?: () => v
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flexShrink: 0 }}>
       {turn.name && <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--tx2)' }}>Claude</div>}
       {turn.parts?.length ? (
-        <OrderedParts parts={turn.parts} />
+        <OrderedParts parts={turn.parts} active={active} />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           {turn.steps.map((s, i) => (
@@ -1954,9 +1961,13 @@ function Detail({
   }
   const sessionCwd = live?.cwd ?? cwd
   const [rewindTo, setRewindTo] = useState<RewindTarget | null>(null)
+  const draftBeforeRewind = useRef<string | null>(null)
   const startRewind = useCallback((t: RewindTarget) => {
     setRewindTo(t)
-    setText(t.text)
+    setText((cur) => {
+      if (draftBeforeRewind.current === null) draftBeforeRewind.current = cur
+      return t.text
+    })
   }, [])
   const [rewindPreview, setRewindPreview] = useState<RewindResult | 'checking' | null>(null)
   const [restoreFiles, setRestoreFiles] = useState(true)
@@ -2023,6 +2034,7 @@ function Detail({
       .catch((err: unknown) => {
         if (!alive.current) return
         setShell(null)
+        setText((cur) => cur || `!${command}`)
         setSendError(err instanceof Error ? err.message : String(err))
       })
   }
@@ -2058,13 +2070,14 @@ function Detail({
     const modelId = modelOptions?.find((m) => m.label === model)?.id
     const id = Date.now()
     const kept = pasted.snapshot()
-    setOutbox((o) => [...o, { id, text: t, before: countSent(t) }])
+    if (!rewindTo) setOutbox((o) => [...o, { id, text: t, before: countSent(t) + o.filter((m) => sameMessage(m.text, t)).length }])
     setText('')
     pasted.clear()
     const rewindAt = rewindTo?.parentUuid
     const restoreAt = rewindTo?.uuid && restoreFiles && restorable.length && onRewindFiles ? rewindTo.uuid : null
     const target = rewindTo
     setRewindTo(null)
+    draftBeforeRewind.current = null
     const before = restoreAt
       ? onRewindFiles!(restoreAt, false).then((r) => {
           if (!r.canRewind) throw new Error(r.error || 'Files could not be restored')
@@ -2203,10 +2216,10 @@ function Detail({
         if (e.key === 't' && showChanges) {
           e.preventDefault()
           toggleTests()
-        } else if (e.key === 'Enter' && showChanges) {
+        } else if (e.key === 'Enter' && showChanges && !isTyping(e)) {
           e.preventDefault()
           continueWith()
-        } else if (e.key === 'Enter' && showPlan) {
+        } else if (e.key === 'Enter' && showPlan && !isTyping(e)) {
           e.preventDefault()
           approvePlan()
         } else if (e.key === 's' && showPlan && planView === 'edit') {
@@ -2225,7 +2238,8 @@ function Detail({
         return
       }
       if (e.key === 'Escape' && running) {
-        stop()
+        const overlay = document.querySelector('[aria-modal],[role="menu"],[role="listbox"],[role="dialog"]')
+        if (!e.defaultPrevented && !overlay && (!isTyping(e) || e.target === inputRef.current)) stop()
         return
       }
       if (e.ctrlKey || isTyping(e)) return
@@ -2324,7 +2338,7 @@ function Detail({
             <div style={{ marginTop: 'auto', padding: '20px 32px 12px', display: 'flex', flexDirection: 'column', gap: 20 }}>
               <RewindOpen.Provider value={onSend && sessionCwd && !running ? startRewind : null}>
                 {data.turns.map((t, i) => (
-                  <TurnView key={i} turn={t} onLoadEarlier={onLoadEarlier} />
+                  <TurnView key={i} turn={t} onLoadEarlier={onLoadEarlier} active={(running || data.header.status === 'running') && i === data.turns.length - 1} />
                 ))}
               </RewindOpen.Provider>
               {running && partial && !lastClaudeText(data.turns).includes(partial.trim().slice(-120)) && (
@@ -2398,7 +2412,8 @@ function Detail({
                 <button
                   onClick={() => {
                     setRewindTo(null)
-                    setText('')
+                    setText(draftBeforeRewind.current ?? '')
+                    draftBeforeRewind.current = null
                   }}
                   style={{ fontSize: 12, fontWeight: 500, padding: '2px 8px', borderRadius: 6, border: '1px solid var(--line)', cursor: 'pointer' }}
                 >
@@ -2450,7 +2465,14 @@ function Detail({
                 <button onClick={() => saveMemory('user')} style={{ fontSize: 12, fontWeight: 500, padding: '2px 8px', borderRadius: 6, border: '1px solid var(--line)', cursor: 'pointer' }}>
                   User CLAUDE.md
                 </button>
-                <button aria-label="Cancel" onClick={() => setMemoryNote(null)} style={{ display: 'flex', cursor: 'pointer' }}>
+                <button
+                  aria-label="Cancel"
+                  onClick={() => {
+                    setText((cur) => cur || `#${memoryNote}`)
+                    setMemoryNote(null)
+                  }}
+                  style={{ display: 'flex', cursor: 'pointer' }}
+                >
                   <Icon name="close" size={16} color="var(--tx3)" />
                 </button>
               </div>
@@ -2518,7 +2540,8 @@ function Detail({
                     }
                     if (e.key === 'Tab' && e.shiftKey && modelOptions) {
                       e.preventDefault()
-                      pickMode(MODES[(MODES.indexOf(mode) + 1) % MODES.length] ?? 'default')
+                      const cycle: RunnerMode[] = MODES.filter((m) => m !== 'bypassPermissions')
+                      pickMode(cycle[(cycle.indexOf(mode) + 1) % cycle.length] ?? 'default')
                       return
                     }
                     if (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.nativeEvent.isComposing) {

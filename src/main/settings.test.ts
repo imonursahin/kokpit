@@ -44,3 +44,10 @@ test('session tags keep up to ten named, coloured tags and drop assignments to d
   expect(sanitizeSettings({ sessionTags: ten }).sessionTags).toHaveLength(10)
   expect(() => sanitizeSettings({ sessionTags: [...ten, { id: 't10', name: 'T10', color: 'red' }] })).toThrow('up to 10')
 })
+
+test('loading saved settings with a Claude path that no longer exists keeps everything else', () => {
+  const saved = { claudeExecutable: '/nope/claude', defaultEffort: 'low', sessionTags: [{ id: 'd', name: 'Deploy', color: 'blue' }], assistantHome: '/Users/x/Kokpit/' }
+  expect(() => sanitizeSettings(saved)).toThrow('not found')
+  const loaded = sanitizeSettings(saved, DEFAULT_SETTINGS, false)
+  expect(loaded).toMatchObject({ claudeExecutable: '', defaultEffort: 'low', sessionTags: [{ id: 'd' }], assistantHome: '/Users/x/Kokpit' })
+})

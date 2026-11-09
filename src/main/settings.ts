@@ -1,10 +1,15 @@
 import { existsSync, statSync } from 'node:fs'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
-import { dirname } from 'node:path'
+import { randomUUID } from 'node:crypto'
+import { dirname, resolve } from 'node:path'
 import { MODES } from '../shared/runner'
 import { DEFAULT_SETTINGS, EFFORT_CHOICES, GITHUB_REFRESH_CHOICES, MAX_SESSION_TAGS, MODEL_CHOICES, NOTIFY_EVENTS, TAG_COLORS, type KokpitSettings, type SessionTag } from '../shared/settings'
 
-export function sanitizeSettings(input: unknown, base: KokpitSettings = DEFAULT_SETTINGS): KokpitSettings {
+export function sanitizeSettings(input: unknown, base: KokpitSettings = DEFAULT_SETTINGS, strict = true): KokpitSettings {
+  const reject = (message: string): false => {
+    if (strict) throw new Error(message)
+    return false
+  }
   const o = typeof input === 'object' && input !== null ? (input as Record<string, unknown>) : {}
   const out = { ...base, sessionTags: base.sessionTags ?? [], sessionTagOf: base.sessionTagOf ?? {}, notify: { ...DEFAULT_SETTINGS.notify, ...base.notify } }
   if (typeof o['defaultModel'] === 'string' && (MODEL_CHOICES.some((m) => m.id === o['defaultModel']) || /^claude-[a-z0-9.-]{1,60}$/.test(o['defaultModel'])))
@@ -16,8 +21,8 @@ export function sanitizeSettings(input: unknown, base: KokpitSettings = DEFAULT_
   if (typeof o['showHeadless'] === 'boolean') out.showHeadless = o['showHeadless']
   if (typeof o['claudeExecutable'] === 'string') {
     const p = o['claudeExecutable'].trim()
-    if (p && (!p.startsWith('/') || !existsSync(p) || !statSync(p).isFile())) throw new Error(`Claude executable not found: ${p}`)
-    out.claudeExecutable = p
+    if (!p || (p.startsWith('/') && existsSync(p) && statSync(p).isFile()) || reject(`Claude executable not found: ${p}`)) out.claudeExecutable = p
+    else out.claudeExecutable = ''
   }
   if (typeof o['githubRefreshMinutes'] === 'number' && GITHUB_REFRESH_CHOICES.includes(o['githubRefreshMinutes']))
     out.githubRefreshMinutes = o['githubRefreshMinutes']
@@ -42,8 +47,8 @@ export function sanitizeSettings(input: unknown, base: KokpitSettings = DEFAULT_
       if (!/^[a-z0-9-]{1,40}$/.test(id) || !name || tags.some((x) => x.id === id)) continue
       tags.push({ id, name, color })
     }
-    if (tags.length > MAX_SESSION_TAGS) throw new Error(`You can have up to ${MAX_SESSION_TAGS} session tags`)
-    out.sessionTags = tags
+    if (tags.length > MAX_SESSION_TAGS) reject(`You can have up to ${MAX_SESSION_TAGS} session tags`)
+    out.sessionTags = tags.slice(0, MAX_SESSION_TAGS)
   }
   if (typeof o['sessionTagOf'] === 'object' && o['sessionTagOf'] !== null && !Array.isArray(o['sessionTagOf'])) {
     out.sessionTagOf = {}
@@ -55,8 +60,9 @@ export function sanitizeSettings(input: unknown, base: KokpitSettings = DEFAULT_
   out.sessionTagOf = Object.fromEntries(Object.entries(out.sessionTagOf ?? {}).filter(([, tid]) => tagIds.has(tid)))
   if (typeof o['assistantHome'] === 'string') {
     const p = o['assistantHome'].trim()
-    if (p && !p.startsWith('/')) throw new Error('Assistant folder must be an absolute path')
-    out.assistantHome = p
+    if (!p) out.assistantHome = ''
+    else if (p.startsWith('/')) out.assistantHome = resolve(p)
+    else if (reject('Assistant folder must be an absolute path') === false) out.assistantHome = ''
   }
   return out
 }
@@ -69,20 +75,27 @@ export class SettingsStore {
   async get(): Promise<KokpitSettings> {
     if (this.value) return this.value
     try {
-      this.value = sanitizeSettings(JSON.parse(await readFile(this.path, 'utf8')))
+      this.value = sanitizeSettings(JSON.parse(await readFile(this.path, 'utf8')), DEFAULT_SETTINGS, false)
     } catch {
       this.value = { ...DEFAULT_SETTINGS }
     }
     return this.value
   }
 
-  async update(patch: unknown): Promise<KokpitSettings> {
-    const next = sanitizeSettings(patch, await this.get())
-    await mkdir(dirname(this.path), { recursive: true })
-    const tmp = `${this.path}.${process.pid}.${Date.now()}.tmp`
-    await writeFile(tmp, JSON.stringify(next, null, 2))
-    await rename(tmp, this.path)
-    this.value = next
-    return next
+  private writes: Promise<unknown> = Promise.resolve()
+
+  update(patch: unknown, check?: (next: KokpitSettings) => Promise<void>): Promise<KokpitSettings> {
+    const run = this.writes.then(async () => {
+      const next = sanitizeSettings(patch, await this.get())
+      if (check) await check(next)
+      await mkdir(dirname(this.path), { recursive: true })
+      const tmp = `${this.path}.${randomUUID()}.tmp`
+      await writeFile(tmp, JSON.stringify(next, null, 2))
+      await rename(tmp, this.path)
+      this.value = next
+      return next
+    })
+    this.writes = run.catch(() => undefined)
+    return run
   }
 }

@@ -72,7 +72,7 @@ export function ApprovalCard({
   useEffect(() => {
     if (!shortcuts) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.metaKey || e.ctrlKey || e.altKey || isTyping(e)) return
+      if (e.metaKey || e.ctrlKey || e.altKey || e.repeat || isTyping(e) || document.querySelector('[aria-modal],[role="dialog"],[role="menu"]')) return
       if (request.type === 'question') {
         const opt = request.options.find((o) => o.key === e.key)
         if (opt) onAnswer?.(opt.key)

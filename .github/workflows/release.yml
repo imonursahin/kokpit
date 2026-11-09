@@ -45,6 +45,9 @@ jobs:
           else
             VER=$(node -e 'const [a, b, c] = process.argv[1].split(".").map(Number); console.log(`${a}.${b}.${c + 1}`)' "$LAST")
           fi
+          EXISTING=$(git tag --points-at "$GITHUB_SHA" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
+          if [ -z "$WANTED" ] && [ -n "$EXISTING" ]; then VER="${EXISTING#v}"; fi
+          if ! echo "$VER" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then echo "Invalid version: $VER"; exit 1; fi
           echo "Releasing $VER (last release: ${LAST:-none})"
           echo "v=$VER" >> "$GITHUB_OUTPUT"
           echo "last=$LAST" >> "$GITHUB_OUTPUT"
@@ -71,9 +74,10 @@ jobs:
       - name: Install, test and build
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          VER: ${{ steps.ver.outputs.v }}
         run: |
           npm ci
-          npm version "${{ steps.ver.outputs.v }}" --no-git-tag-version --allow-same-version
+          npm version "$VER" --no-git-tag-version --allow-same-version
           npm test
           npm run typecheck
           npm run dist
@@ -88,10 +92,15 @@ jobs:
           key: electron-dl-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Publish the release
+        env:
+          VER: ${{ steps.ver.outputs.v }}
         run: |
-          VER="${{ steps.ver.outputs.v }}"
           DRAFT=$(gh release view "v$VER" --repo "$GITHUB_REPOSITORY" --json isDraft -q .isDraft 2>/dev/null || echo missing)
-          if [ "$DRAFT" = "false" ]; then echo "v$VER is already released"; exit 1; fi
+          if [ "$DRAFT" = "false" ]; then
+            echo "v$VER is already released; using its published DMG for the cask"
+            gh release download "v$VER" --repo "$GITHUB_REPOSITORY" --pattern "Kokpit-$VER-arm64.dmg" --dir dist --clobber
+            exit 0
+          fi
           if [ "$DRAFT" = "true" ]; then gh release delete "v$VER" --repo "$GITHUB_REPOSITORY" --yes; fi
           gh release create "v$VER" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --draft \
             --title "Kokpit $VER" --notes-file notes.md \
@@ -101,8 +110,8 @@ jobs:
       - name: Update the Homebrew cask
         env:
           DEPLOY_KEY: ${{ secrets.TAP_DEPLOY_KEY }}
+          VER: ${{ steps.ver.outputs.v }}
         run: |
-          VER="${{ steps.ver.outputs.v }}"
           SHA=$(shasum -a 256 "dist/Kokpit-$VER-arm64.dmg" | awk '{print $1}')
           mkdir -p ~/.ssh
           printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/tap_key

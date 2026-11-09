@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { safeStorage } from 'electron'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
@@ -33,15 +34,21 @@ export class Secrets {
     }
   }
 
-  async set(key: string, value: unknown | null): Promise<void> {
-    if (value !== null && !(await safeStorage.isAsyncEncryptionAvailable())) throw new Error('Keychain encryption is not available')
-    const all = { ...(await this.load()) }
-    if (value === null) delete all[key]
-    else all[key] = (await safeStorage.encryptStringAsync(JSON.stringify(value))).toString('base64')
-    await mkdir(dirname(this.path), { recursive: true })
-    const tmp = `${this.path}.${process.pid}.${Date.now()}.tmp`
-    await writeFile(tmp, JSON.stringify(all), { mode: 0o600 })
-    await rename(tmp, this.path)
-    this.cache = all
+  private writes: Promise<unknown> = Promise.resolve()
+
+  set(key: string, value: unknown | null): Promise<void> {
+    const run = this.writes.then(async () => {
+      if (value !== null && !(await safeStorage.isAsyncEncryptionAvailable())) throw new Error('Keychain encryption is not available')
+      const all = { ...(await this.load()) }
+      if (value === null) delete all[key]
+      else all[key] = (await safeStorage.encryptStringAsync(JSON.stringify(value))).toString('base64')
+      await mkdir(dirname(this.path), { recursive: true })
+      const tmp = `${this.path}.${randomUUID()}.tmp`
+      await writeFile(tmp, JSON.stringify(all), { mode: 0o600 })
+      await rename(tmp, this.path)
+      this.cache = all
+    })
+    this.writes = run.catch(() => undefined)
+    return run
   }
 }

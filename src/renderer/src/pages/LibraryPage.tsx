@@ -642,9 +642,10 @@ function Library({
       else if (k === 'n' && startNew) startNew()
       else return
       e.preventDefault()
+      e.stopImmediatePropagation()
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
   }, [creating, save, toggle, startNew, format])
 
   const list = (

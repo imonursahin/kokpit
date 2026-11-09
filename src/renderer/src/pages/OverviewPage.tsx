@@ -278,7 +278,7 @@ export function OverviewPage({
   sessions: SessionSummary[]
   items: SessionIndexItem[]
   onOpen: (id: string) => void
-  onAllow: (id: string) => void
+  onAllow: (id: string, askId?: string) => void
   onNew: () => void
   onGo: (page: Page) => void
 }) {
@@ -383,7 +383,7 @@ export function OverviewPage({
         <Section title={<NowTabs tab={activeNow} counts={{ running: waiting.length + running.length, unread: unread.length }} onTab={setNowTab} />}>
           <div role="tabpanel" style={{ borderTop: '1px solid var(--line)' }}>
             {nowLists[activeNow].length ? (
-              nowLists[activeNow].map((s) => <SessionRow key={s.id} s={s} onOpen={() => onOpen(s.id)} onAllow={() => onAllow(s.id)} />)
+              nowLists[activeNow].map((s) => <SessionRow key={s.id} s={s} onOpen={() => onOpen(s.id)} onAllow={() => onAllow(s.id, s.askId)} />)
             ) : (
               <Empty>{NOW_TABS.find((t) => t.id === activeNow)?.empty}</Empty>
             )}
@@ -437,7 +437,7 @@ export function OverviewPage({
       <Section title="Recent sessions" action={<LinkButton onClick={() => onGo('sessions')}>All sessions</LinkButton>}>
         <div style={{ borderTop: '1px solid var(--line)', marginBottom: 28 }}>
           {recent.length ? (
-            recent.map((s) => <SessionRow key={s.id} s={s} onOpen={() => onOpen(s.id)} onAllow={() => onAllow(s.id)} />)
+            recent.map((s) => <SessionRow key={s.id} s={s} onOpen={() => onOpen(s.id)} onAllow={() => onAllow(s.id, s.askId)} />)
           ) : (
             <Empty>No sessions yet.</Empty>
           )}

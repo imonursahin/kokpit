@@ -113,6 +113,7 @@ export function SessionsPage({
   onOpen,
   onAllow,
   onArchive,
+  onUnarchive,
   onPin,
   pinOrder = [],
   onReorderPins,
@@ -126,8 +127,9 @@ export function SessionsPage({
   errorDetail?: string
   footer?: string
   onOpen: (id: string) => void
-  onAllow: (id: string) => void
+  onAllow: (id: string, askId?: string) => void
   onArchive: (id: string) => void
+  onUnarchive?: (id: string) => void
   onPin: (id: string) => void
   pinOrder?: string[]
   onReorderPins?: (ids: string[]) => void
@@ -172,6 +174,12 @@ export function SessionsPage({
       .sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned) || (a.pinned && b.pinned ? pinOrder.indexOf(a.id) - pinOrder.indexOf(b.id) : 0))
   }, [sessions, scoped, tab, jira, query, pinOrder])
   const [drag, setDrag] = useState<{ id: string; over?: string } | null>(null)
+  const [undo, setUndo] = useState<{ id: string; title: string } | null>(null)
+  useEffect(() => {
+    if (!undo) return
+    const t = setTimeout(() => setUndo(null), 8000)
+    return () => clearTimeout(t)
+  }, [undo])
   const dropPin = (target: string) => {
     if (!drag || drag.id === target || !onReorderPins) return setDrag(null)
     onReorderPins(movePin(rows.filter((r) => r.pinned).map((r) => r.id), drag.id, target))
@@ -201,12 +209,13 @@ export function SessionsPage({
         if (!rows.length) return
         const next = e.key === 'ArrowDown' ? Math.min(rows.length - 1, idx + 1) : Math.max(0, idx < 0 ? 0 : idx - 1)
         setSelectedId(rows[next]?.id ?? null)
-      } else if (e.key === 'Enter' && selected) {
+      } else if (e.key === 'Enter' && selected && !(e.target as HTMLElement).closest('button,[role="button"],a')) {
         onOpen(selected.id)
       } else if ((e.key === 'y' || e.key === 'Y') && selected?.status === 'waiting') {
-        onAllow(selected.id)
+        onAllow(selected.id, selected.askId)
       } else if (e.key === 'Backspace' && selected) {
         onArchive(selected.id)
+        setUndo({ id: selected.id, title: selected.title })
       } else if ((e.key === 'p' || e.key === 'P') && selected) {
         onPin(selected.id)
       } else if (e.key === '/') {
@@ -425,13 +434,27 @@ export function SessionsPage({
                   s={s}
                   selected={s.id === selectedId}
                   onOpen={() => onOpen(s.id)}
-                  onAllow={() => onAllow(s.id)}
+                  onAllow={() => onAllow(s.id, s.askId)}
                   onPin={() => onPin(s.id)}
                 />
               </div>
             </Fragment>
           ))}
 
+        {undo && onUnarchive && (
+          <div role="status" style={{ position: 'sticky', bottom: 12, alignSelf: 'center', zIndex: 5, display: 'flex', alignItems: 'center', gap: 12, padding: '8px 10px 8px 14px', borderRadius: 10, background: 'var(--tx)', color: 'var(--panel)', fontSize: 12.5, boxShadow: 'var(--pop)' }}>
+            <span style={{ maxWidth: 360, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Archived {undo.title}</span>
+            <button
+              onClick={() => {
+                onUnarchive(undo.id)
+                setUndo(null)
+              }}
+              style={{ fontWeight: 600, padding: '2px 8px', borderRadius: 6, cursor: 'pointer', color: 'var(--panel)', border: '1px solid currentColor' }}
+            >
+              Undo
+            </button>
+          </div>
+        )}
         {isList && olderCount > 0 && (
           <button
             onClick={() => setShowAll(true)}

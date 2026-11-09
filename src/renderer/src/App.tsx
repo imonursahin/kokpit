@@ -138,7 +138,7 @@ export function App() {
     setSeen((prev) => {
       const next = { ...(prev ?? {}), ...updates }
       const entries = Object.entries(next)
-      const trimmed = entries.length > 3000 ? Object.fromEntries(entries.slice(-3000)) : next
+      const trimmed = entries.length > 3000 ? Object.fromEntries(entries.sort((a, b) => b[1].localeCompare(a[1])).slice(0, 3000)) : next
       localStorage.setItem('kokpit.seen', JSON.stringify(trimmed))
       return trimmed
     })
@@ -175,10 +175,23 @@ export function App() {
   const unreadKey = useMemo(() => JSON.stringify(visible.filter((s) => s.unread).map((s) => ({ id: s.id, title: s.title }))), [visible])
   useEffect(() => window.kokpit?.setUnread(JSON.parse(unreadKey) as { id: string; title: string }[]), [unreadKey])
 
-  const open = useCallback((id: string) => {
-    setOpenId(id)
-    setPage('session')
-  }, [])
+  const open = useCallback(
+    (id: string) => {
+      if (!id.startsWith('pending-')) runner.release(id)
+      setOpenId(id)
+      setPage('session')
+    },
+    [runner.release]
+  )
+  const allow = useCallback(
+    (id: string, askId?: string) => {
+      const pending = runner.live.get(id)?.pending ?? []
+      const ask = askId ? pending.find((p) => p.requestId === askId) : pending[0]
+      if (ask && ask.toolName !== 'AskUserQuestion') runner.respond(id, ask.requestId, 'allow').catch(() => open(id))
+      else open(id)
+    },
+    [runner, open]
+  )
   useEffect(
     () =>
       window.kokpit?.onNavigate((t) => {
@@ -215,6 +228,16 @@ export function App() {
       }),
     []
   )
+  const unarchive = useCallback(
+    (id: string) =>
+      setArchived((prev) => {
+        const next = new Set(prev)
+        next.delete(id)
+        localStorage.setItem('kokpit.archived', JSON.stringify([...next]))
+        return next
+      }),
+    []
+  )
   const noop = useCallback(() => {}, [])
 
   const openResult = useCallback(
@@ -236,11 +259,7 @@ export function App() {
           sessions={visible}
           items={items}
           onOpen={open}
-          onAllow={(id) => {
-            const ask = runner.live.get(id)?.pending[0]
-            if (ask && ask.toolName !== 'AskUserQuestion') void runner.respond(id, ask.requestId, 'allow')
-            else open(id)
-          }}
+          onAllow={allow}
           onNew={() => setNewSession({})}
           onGo={setPage}
         />
@@ -254,12 +273,9 @@ export function App() {
           errorDetail={error}
           footer={footer}
           onOpen={open}
-          onAllow={(id) => {
-            const ask = runner.live.get(id)?.pending[0]
-            if (ask && ask.toolName !== 'AskUserQuestion') void runner.respond(id, ask.requestId, 'allow')
-            else open(id)
-          }}
+          onAllow={allow}
           onArchive={archive}
+          onUnarchive={unarchive}
           onPin={togglePin}
           pinOrder={pinOrder}
           onReorderPins={reorderPins}

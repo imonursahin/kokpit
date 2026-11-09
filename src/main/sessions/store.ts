@@ -210,7 +210,7 @@ export class SessionStore {
             : status === 'error'
               ? s.lastText || 'The last request failed'
               : s.lastText || s.lastActivity,
-        headless: s.entrypoint === 'sdk-cli' || s.cwd.startsWith('/private/tmp') || s.cwd.startsWith('/tmp')
+        headless: s.entrypoint === 'sdk-cli' || s.cwd.startsWith('/private/tmp/') || s.cwd.startsWith('/tmp/')
       })
     }
     return out.sort((a, b) => (a.lastAt < b.lastAt ? 1 : -1))

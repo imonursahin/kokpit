@@ -1,6 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
+import { StringDecoder } from 'node:string_decoder'
 import { PTY_BRIDGE } from './bridge'
 
 export type TerminalEvent = { type: 'data'; id: string; data: string } | { type: 'exit'; id: string; code: number | null }
@@ -22,8 +23,11 @@ export class Terminals {
       env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor', FORCE_COLOR: '1' }
     })
     this.procs.set(id, proc)
-    proc.stdout.on('data', (d: Buffer) => this.emit({ type: 'data', id, data: d.toString('utf8') }))
-    proc.stderr.on('data', (d: Buffer) => this.emit({ type: 'data', id, data: d.toString('utf8') }))
+    const out = new StringDecoder('utf8')
+    const err = new StringDecoder('utf8')
+    proc.stdout.on('data', (d: Buffer) => this.emit({ type: 'data', id, data: out.write(d) }))
+    proc.stderr.on('data', (d: Buffer) => this.emit({ type: 'data', id, data: err.write(d) }))
+    proc.stdin.on('error', () => undefined)
     proc.on('error', (err) => {
       this.emit({ type: 'data', id, data: `\r\nCould not start the terminal: ${err.message}\r\n` })
       this.emit({ type: 'exit', id, code: 1 })

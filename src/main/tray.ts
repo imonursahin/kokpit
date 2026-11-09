@@ -81,6 +81,7 @@ export class KokpitTray {
   private last: { items: SessionIndexItem[]; showHeadless: boolean } | null = null
   private hiddenAt = 0
   private tone: Tone = 'plain'
+  private tip = ''
 
   constructor(private readonly opts: TrayOptions) {
     ipcMain.handle('tray:getState', () => this.state())
@@ -117,6 +118,7 @@ export class KokpitTray {
     }
     if (!this.tray) {
       this.tone = 'plain'
+      this.tip = ''
       this.tray = new Tray(trayIcon('plain'))
       this.title = ''
       this.tray.on('click', () => this.toggle())
@@ -165,7 +167,11 @@ export class KokpitTray {
     if (title !== this.title) {
       this.title = title
       this.tray.setTitle(title ? ` ${title}` : '')
-      this.tray.setToolTip(`Kokpit · ${s.running.length} running · ${s.waiting.length} waiting for you · ${s.unread.length} finished, not opened`)
+    }
+    const tip = `Kokpit · ${s.running.length} running · ${s.waiting.length} waiting for you · ${s.unread.length} finished, not opened`
+    if (tip !== this.tip) {
+      this.tip = tip
+      this.tray.setToolTip(tip)
     }
     if (this.panel && !this.panel.isDestroyed()) this.panel.webContents.send('tray:state', s)
   }

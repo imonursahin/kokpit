@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { moveSessionState } from './drafts'
 import type { AskDecision, ImageInput, LiveSession, RunnerMode, StartSession, TurnSettings } from '@shared/runner'
 
 export type Runner = {
@@ -10,6 +11,7 @@ export type Runner = {
   interrupt: (sessionId: string) => Promise<void>
   setMode: (sessionId: string, mode: RunnerMode) => Promise<void>
   sessionIdFor: (tempId: string) => string | undefined
+  release: (id: string) => void
 }
 
 const EMPTY = new Map<string, LiveSession>()
@@ -46,7 +48,7 @@ export function useRunner(): Runner {
         setLive((prev) => new Map(prev).set(e.session.sessionId, e.session))
       } else if (e.type === 'ended') {
         setLive((prev) => {
-          if (!prev.has(e.sessionId)) return prev
+          if (!prev.has(e.sessionId) || prev.get(e.sessionId)?.state === 'error') return prev
           const next = new Map(prev)
           next.delete(e.sessionId)
           return next
@@ -58,6 +60,7 @@ export function useRunner(): Runner {
           return next
         })
       } else if (e.type === 'started') {
+        if (e.tempId.startsWith('pending-')) moveSessionState(e.tempId, e.sessionId)
         rekeyed.current.add(e.tempId)
         setIds((prev) => rekeyIds(prev, e.tempId, e.sessionId))
         setLive((prev) => {
@@ -115,5 +118,15 @@ export function useRunner(): Runner {
     [ids]
   )
 
-  return { live, partial, start, send, respond, interrupt, setMode, sessionIdFor }
+  const release = useCallback((id: string) => {
+    rekeyed.current.delete(id)
+    setIds((prev) => {
+      if (!prev.has(id)) return prev
+      const next = new Map(prev)
+      next.delete(id)
+      return next
+    })
+  }, [])
+
+  return { live, partial, start, send, respond, interrupt, setMode, sessionIdFor, release }
 }

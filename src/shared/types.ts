@@ -17,6 +17,7 @@ export type SessionSummary = {
   unread?: boolean
   pinned?: boolean
   tag?: { name: string; color: string }
+  askId?: string
 }
 
 export type Page =

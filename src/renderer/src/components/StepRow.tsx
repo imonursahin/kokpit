@@ -47,7 +47,14 @@ export function StepRow({ step }: { step: Step }) {
     <div style={{ display: 'flex', flexDirection: 'column', fontSize: 12.5 }}>
       <div
         role={clickable ? 'button' : undefined}
+        tabIndex={clickable ? 0 : undefined}
         title={agent ? 'Open this subagent' : workflow ? 'Open this workflow run' : undefined}
+        onKeyDown={(e) => {
+          if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) {
+            e.preventDefault()
+            e.currentTarget.click()
+          }
+        }}
         onClick={() => {
           if (workflow) openAgent?.(`workflow:${workflow.runId}`)
           else if (agent) openAgent?.(agent.id)

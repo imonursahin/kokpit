@@ -19,6 +19,7 @@ export type SessionIndexItem = {
   status: SessionStatus
   sub: string
   headless: boolean
+  askId?: string
 }
 
 export type CliStatus = 'busy' | 'idle'

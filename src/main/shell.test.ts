@@ -20,3 +20,23 @@ test('a # note is appended as a bullet to the project CLAUDE.md', async () => {
   expect(readFileSync(file, 'utf8')).toBe('# Rules\n- Use pnpm, not npm\n')
   await expect(appendMemory('team', dir, 'x')).rejects.toThrow('invalid memory target')
 })
+
+test('a command that leaves a background child behind still returns, and the timeout kills the whole group', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'kokpit-shell-'))
+  const t0 = Date.now()
+  const r = await runShell(dir, 'sleep 30 & echo started')
+  expect(r.output).toContain('started')
+  expect(Date.now() - t0).toBeLessThan(5000)
+  const slow = await runShell(dir, 'echo before; sleep 30', 800)
+  expect(slow.code).toBeNull()
+  expect(slow.output).toContain('before')
+})
+
+test('@ file list keeps non-ASCII file names intact', async () => {
+  const { execFileSync } = await import('node:child_process')
+  const { listFiles } = await import('./files')
+  const dir = mkdtempSync(join(tmpdir(), 'kokpit-files-'))
+  execFileSync('git', ['init', '-q'], { cwd: dir })
+  writeFileSync(join(dir, 'ü.txt'), 'x')
+  expect(await listFiles(dir)).toContain('ü.txt')
+})
