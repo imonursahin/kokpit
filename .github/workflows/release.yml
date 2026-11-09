@@ -59,12 +59,16 @@ jobs:
           node scripts/release-notes.cjs subjects.txt > notes.md
           cat notes.md
 
-      - name: Cache the Electron download
-        uses: actions/cache@v4
+      - name: Restore the Electron and electron-builder downloads
+        uses: actions/cache/restore@v4
         with:
-          path: ~/Library/Caches/electron
-          key: electron-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package-lock.json') }}
-          restore-keys: electron-${{ runner.os }}-${{ runner.arch }}-
+          path: |
+            ~/Library/Caches/electron
+            ~/Library/Caches/electron-builder
+          key: electron-dl-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package-lock.json') }}-${{ github.run_id }}
+          restore-keys: |
+            electron-dl-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package-lock.json') }}-
+            electron-dl-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Install, test and build
         env:
@@ -75,6 +79,15 @@ jobs:
           npm test
           npm run typecheck
           npm run dist
+
+      - name: Save the Electron and electron-builder downloads
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/Library/Caches/electron
+            ~/Library/Caches/electron-builder
+          key: electron-dl-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package-lock.json') }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Publish the release
         run: |
