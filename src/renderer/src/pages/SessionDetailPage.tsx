@@ -9,7 +9,7 @@ import { DiffFileHeader, type DiffFile } from '@/components/DiffFileHeader'
 import { Icon, KeyHint, Spinner } from '@/components/primitives'
 import { Status } from '@/components/Status'
 import { Markdown } from '@/components/Markdown'
-import { openJiraIssue } from '@/components/LinkChips'
+import { openJiraIssue, PrChip } from '@/components/LinkChips'
 import { TagPicker } from '@/components/TagChip'
 import type { SessionTag } from '@shared/settings'
 import { StepRow, SubagentOpen, type Step } from '@/components/StepRow'
@@ -456,8 +456,14 @@ function Header({
         )}
         {h.pr ? (
           <span style={chip}>
-            <Icon name="merge" size={14} color="var(--tx3)" />
-            <span style={{ font: `500 11.5px/1 ${MONO}`, color: 'var(--tx)' }}>{h.pr.number}</span>
+            {h.pr.url || h.jira ? (
+              <PrChip label={h.pr.number} url={h.pr.url ?? ''} jiraKey={h.jira?.key ?? ''} />
+            ) : (
+              <>
+                <Icon name="merge" size={14} color="var(--tx3)" />
+                <span style={{ font: `500 11.5px/1 ${MONO}`, color: 'var(--tx)' }}>{h.pr.number}</span>
+              </>
+            )}
             {h.pr.state}
             {h.pr.checks && (
               <>

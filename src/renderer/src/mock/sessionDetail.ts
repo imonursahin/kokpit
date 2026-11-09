@@ -16,7 +16,7 @@ export type SessionHeader = {
   repo: string
   branch: string
   jira?: { key: string; title: string }
-  pr?: { number: string; state?: string; checks?: string }
+  pr?: { number: string; url?: string; state?: string; checks?: string }
   context?: { used: number; window: number }
 }
 

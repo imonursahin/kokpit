@@ -76,7 +76,7 @@ export function toDetailView(data: SessionDetailData, nowMs: number): DetailView
       repo: h.repo,
       branch: h.branch,
       jira: h.jira,
-      pr: h.pr && { number: h.pr.number },
+      pr: h.pr && { number: h.pr.number, url: h.pr.url },
       context: h.context
     },
     turns: toTurns(data.turns, data.earlierCount),
