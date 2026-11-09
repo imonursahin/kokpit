@@ -8,6 +8,8 @@ import { useSlashCommands } from './SlashCommands'
 import { useModels } from '@/data/useModels'
 import { useFileMentions } from './FileMentions'
 import { usePastedImages, withImageMarkers } from './PastedImages'
+import type { SessionSummary } from '@shared/types'
+import { Status } from './Status'
 import { Icon, Kbd, PrimaryButton } from './primitives'
 
 const MONO = "'Geist Mono',monospace"
@@ -35,8 +37,22 @@ function Field({ label, optional, hint, children }: { label: string; optional?: 
   )
 }
 
+const JIRA_KEY = /\b[A-Z][A-Z0-9]+-\d+\b/
+
+export function sessionsForTask(sessions: SessionSummary[], text: string): { key: string; list: SessionSummary[] } {
+  const key = JIRA_KEY.exec(text)?.[0] ?? ''
+  if (!key) return { key, list: [] }
+  const list = sessions
+    .filter((s) => s.jira === key || s.title.includes(key))
+    .sort((a, b) => (b.lastAt ?? '').localeCompare(a.lastAt ?? ''))
+    .slice(0, 3)
+  return { key, list }
+}
+
 export function NewSessionDialog({
   jiraKey,
+  sessions = [],
+  onOpenExisting,
   onClose,
   onStarted,
   defaultModel = 'claude-opus-5-5',
@@ -44,6 +60,8 @@ export function NewSessionDialog({
   defaultMode = 'default'
 }: {
   jiraKey?: string
+  sessions?: SessionSummary[]
+  onOpenExisting?: (id: string) => void
   onClose: () => void
   onStarted: (tempId: string) => void
   defaultModel?: string
@@ -60,6 +78,7 @@ export function NewSessionDialog({
   const pasted = usePastedImages()
   const models = useModels()
   const [title, setTitle] = useState(jiraKey ? `${jiraKey} ` : '')
+  const existing = sessionsForTask(sessions, `${title} ${jiraKey ?? ''}`)
   const [model, setModel] = useState(defaultModel)
   const [effort, setEffort] = useState<RunnerEffort>(defaultEffort)
   const [mode, setMode] = useState<RunnerMode>(defaultMode)
@@ -222,6 +241,26 @@ export function NewSessionDialog({
             gap: 16
           }}
         >
+          {onOpenExisting && existing.list.length > 0 && (
+            <div role="note" style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '10px 12px', border: '1px solid var(--line)', borderRadius: 10, background: 'var(--hover)' }}>
+              <span style={{ fontSize: 12.5, color: 'var(--tx2)' }}>
+                {existing.key} already has {existing.list.length === 1 ? 'a session' : `${existing.list.length} sessions`}. Continue there instead of starting over?
+              </span>
+              {existing.list.map((s) => (
+                <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                  <Status status={s.status} />
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.title}</span>
+                  <span style={{ flexShrink: 0, fontSize: 12, color: 'var(--tx3)' }}>{s.time}</span>
+                  <button
+                    onClick={() => onOpenExisting(s.id)}
+                    style={{ flexShrink: 0, height: 26, padding: '0 10px', borderRadius: 6, border: '1px solid var(--line)', background: 'var(--panel)', fontSize: 12, fontWeight: 500, cursor: 'pointer' }}
+                  >
+                    Open
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           <Field label="Repository" hint={selected && <span style={{ fontFamily: MONO }}>{selected.root}</span>}>
             <select
               aria-label="Repository"

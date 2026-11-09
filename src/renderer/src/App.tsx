@@ -456,6 +456,11 @@ export function App() {
       {newSession && (
         <NewSessionDialog
           jiraKey={newSession.jiraKey}
+          sessions={visible}
+          onOpenExisting={(id) => {
+            setNewSession(null)
+            open(id)
+          }}
           defaultModel={settings?.defaultModel}
           defaultEffort={settings?.defaultEffort}
           defaultMode={settings?.defaultMode}
