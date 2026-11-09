@@ -73,7 +73,7 @@ const changeGutter = [
 function languageExtension(lang: CodeLanguage): Extension {
   switch (lang) {
     case 'markdown':
-      return markdown({ base: markdownLanguage, extensions: { remove: ['SetextHeading'] } })
+      return [markdown({ base: markdownLanguage, extensions: { remove: ['SetextHeading'] } }), EditorView.lineWrapping]
     case 'python':
       return python()
     case 'javascript':

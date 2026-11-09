@@ -1,4 +1,4 @@
-import { useState, type ClipboardEvent } from 'react'
+import { useEffect, useState, type ClipboardEvent } from 'react'
 import { IMAGE_TYPES, type ImageInput } from '@shared/runner'
 import { Icon } from './primitives'
 
@@ -11,8 +11,15 @@ export function withImageMarkers(text: string, count: number): string {
   return [markers, text].filter(Boolean).join(' ')
 }
 
-export function usePastedImages() {
-  const [images, setImages] = useState<Pasted[]>([])
+const kept = new Map<string, Pasted[]>()
+
+export function usePastedImages(key?: string) {
+  const [images, setImages] = useState<Pasted[]>(() => (key ? (kept.get(key) ?? []) : []))
+  useEffect(() => {
+    if (!key) return
+    if (images.length) kept.set(key, images)
+    else kept.delete(key)
+  }, [key, images])
 
   const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
     const files = [...e.clipboardData.files].filter((f) => (IMAGE_TYPES as readonly string[]).includes(f.type))

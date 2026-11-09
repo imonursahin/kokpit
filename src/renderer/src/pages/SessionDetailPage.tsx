@@ -1791,7 +1791,7 @@ function Detail({
   }, [sentTexts])
   const slash = useSlashCommands(text, setText, 'above', live?.cwd ?? cwd)
   const mention = useFileMentions(text, setText, 'above', live?.cwd ?? cwd)
-  const pasted = usePastedImages()
+  const pasted = usePastedImages(draftKey)
   const recall = useRef<{ index: number; draft: string } | null>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const [inputFocused, setInputFocused] = useState(false)
