@@ -5,6 +5,7 @@ export type ParsedSummary = {
   title: string
   customTitle: string
   firstPrompt: string
+  firstPromptIsCommand?: boolean
   cwd: string
   branch: string
   entrypoint: string
@@ -207,8 +208,15 @@ export class SessionAccumulator {
     }
     const text = promptText(content)
     const command = slashCommand(text)
-    if (command || !isNoisePrompt(text)) {
-      if (!this.s.firstPrompt) this.s.firstPrompt = firstLine(command || text)
+    if (command && !this.s.firstPrompt) {
+      this.s.firstPrompt = firstLine(command)
+      this.s.firstPromptIsCommand = true
+    }
+    if (!isNoisePrompt(text)) {
+      if (!this.s.firstPrompt || this.s.firstPromptIsCommand) {
+        this.s.firstPrompt = firstLine(text)
+        this.s.firstPromptIsCommand = false
+      }
       this.s.lastStopReason = ''
     }
     this.s.pendingTool = [...this.pending.values()].at(-1) ?? ''
