@@ -9,7 +9,7 @@ const ARC_START = 135
 const ARC_TRACK = 270
 const ARC_VALUE = 169
 
-export function gaugeBitmap(px: number): Buffer {
+export function gaugeBitmap(px: number, color?: [number, number, number]): Buffer {
   const buf = Buffer.alloc(px * px * 4)
   const ss = 4
   const scale = 100 / px
@@ -32,7 +32,13 @@ export function gaugeBitmap(px: number): Buffer {
         }
       }
       const i = (y * px + x) * 4
-      buf[i + 3] = Math.round((alpha / (ss * ss)) * 255)
+      const a = alpha / (ss * ss)
+      buf[i + 3] = Math.round(a * 255)
+      if (color) {
+        buf[i] = Math.round(color[2] * a)
+        buf[i + 1] = Math.round(color[1] * a)
+        buf[i + 2] = Math.round(color[0] * a)
+      }
     }
   }
   return buf
@@ -55,6 +61,16 @@ export type TrayOptions = {
 
 const PANEL_WIDTH = 340
 
+type Tone = 'plain' | 'waiting' | 'unread'
+
+const TONES: Record<Exclude<Tone, 'plain'>, [number, number, number]> = { waiting: [245, 158, 11], unread: [59, 130, 246] }
+
+function trayIcon(tone: Tone): Electron.NativeImage {
+  const image = nativeImage.createFromBitmap(gaugeBitmap(36, tone === 'plain' ? undefined : TONES[tone]), { width: 36, height: 36, scaleFactor: 2 })
+  image.setTemplateImage(tone === 'plain')
+  return image
+}
+
 export class KokpitTray {
   private tray: Tray | null = null
   private panel: BrowserWindow | null = null
@@ -64,6 +80,7 @@ export class KokpitTray {
   private unread: { id: string; title: string }[] = []
   private last: { items: SessionIndexItem[]; showHeadless: boolean } | null = null
   private hiddenAt = 0
+  private tone: Tone = 'plain'
 
   constructor(private readonly opts: TrayOptions) {
     ipcMain.handle('tray:getState', () => this.state())
@@ -99,9 +116,8 @@ export class KokpitTray {
       return
     }
     if (!this.tray) {
-      const image = nativeImage.createFromBitmap(gaugeBitmap(36), { width: 36, height: 36, scaleFactor: 2 })
-      image.setTemplateImage(true)
-      this.tray = new Tray(image)
+      this.tone = 'plain'
+      this.tray = new Tray(trayIcon('plain'))
       this.title = ''
       this.tray.on('click', () => this.toggle())
       this.tray.on('right-click', () =>
@@ -141,6 +157,11 @@ export class KokpitTray {
           ? `${s.unread.length} finished`
           : ''
     const title = [weekly ? `${Math.round(weekly.utilization)}%` : '', activity].filter(Boolean).join(' · ')
+    const tone: Tone = s.waiting.length ? 'waiting' : s.unread.length ? 'unread' : 'plain'
+    if (tone !== this.tone) {
+      this.tone = tone
+      this.tray.setImage(trayIcon(tone))
+    }
     if (title !== this.title) {
       this.title = title
       this.tray.setTitle(title ? ` ${title}` : '')

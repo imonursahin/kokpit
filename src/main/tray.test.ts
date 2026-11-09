@@ -23,3 +23,13 @@ test('reset times read as days and hours, or hours and minutes', async () => {
   expect(resetsIn('2026-11-05T12:20:00Z', now)).toBe('resets in 20m')
   expect(resetsIn('2026-11-05T11:00:00Z', now)).toBe('resets now')
 })
+
+test('the tray gauge can be drawn in a colour for waiting and unread sessions', async () => {
+  const { gaugeBitmap } = await import('./tray')
+  const px = 100
+  const buf = gaugeBitmap(px, [59, 130, 246])
+  const at = (x: number, y: number) => [...buf.subarray((y * px + x) * 4, (y * px + x) * 4 + 4)]
+  expect(at(50, 50)).toEqual([246, 130, 59, 255])
+  expect(at(2, 2)).toEqual([0, 0, 0, 0])
+  expect([...gaugeBitmap(px).subarray((50 * px + 50) * 4, (50 * px + 50) * 4 + 4)]).toEqual([0, 0, 0, 255])
+})
