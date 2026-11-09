@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process'
 import { existsSync, statSync } from 'node:fs'
 import { readdir } from 'node:fs/promises'
+import { homedir } from 'node:os'
 import { join, relative } from 'node:path'
 import { promisify } from 'node:util'
 
@@ -8,6 +9,7 @@ const run = promisify(execFile)
 const MAX_FILES = 20_000
 const TTL_MS = 30_000
 const SKIP = new Set(['node_modules', '.git', 'dist', 'out', 'build', '.next', 'vendor', '.venv', '__pycache__'])
+const PRIVATE_HOME = new Set(['Library', 'Pictures', 'Movies', 'Music', 'Photos Library.photoslibrary'])
 
 const cache = new Map<string, { at: number; files: Promise<string[]> }>()
 
@@ -19,7 +21,7 @@ async function walk(root: string, dir: string, out: string[], depth: number): Pr
     if (e.name.startsWith('.') && e.name !== '.claude' && e.name !== '.github') continue
     const abs = join(dir, e.name)
     if (e.isDirectory()) {
-      if (!SKIP.has(e.name)) await walk(root, abs, out, depth + 1)
+      if (!SKIP.has(e.name) && !(dir === homedir() && PRIVATE_HOME.has(e.name))) await walk(root, abs, out, depth + 1)
     } else if (e.isFile()) out.push(relative(root, abs))
   }
 }

@@ -1,7 +1,7 @@
-import { homedir } from 'node:os'
 import { query } from '@anthropic-ai/claude-agent-sdk'
 import type { PlanUsage, PlanWindow } from '../shared/settings'
 import { idleInput } from './mcp'
+import { quietDir } from './quietDir'
 
 type Window = { utilization?: number | null; resets_at?: string | null } | null | undefined
 
@@ -26,7 +26,7 @@ export function toWindows(limits: Record<string, unknown> | null): PlanWindow[] 
 
 export async function planUsage(executable: string | undefined, timeoutMs = 20_000): Promise<PlanUsage> {
   const abort = new AbortController()
-  const q = query({ prompt: idleInput(), options: { cwd: homedir(), abortController: abort, pathToClaudeCodeExecutable: executable } })
+  const q = query({ prompt: idleInput(), options: { cwd: quietDir(), abortController: abort, pathToClaudeCodeExecutable: executable } })
   const timer = setTimeout(() => abort.abort(), timeoutMs)
   try {
     const u = await q.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({ skipBehaviors: true })

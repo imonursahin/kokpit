@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync, statSync } from 'node:fs'
-import { homedir } from 'node:os'
 import {
   query,
   renameSession,
@@ -12,6 +11,7 @@ import {
 } from '@anthropic-ai/claude-agent-sdk'
 import { EFFORTS, IMAGE_TYPES, isRunnerMode, type Activity, type AskDecision, type BackgroundTask, type ImageInput, type LiveSession, type PendingAsk, type RunnerEvent, type ModelOption, type RewindResult, type SlashCommandInfo, type StartSession, type TurnSettings } from '../shared/runner'
 import { memoryDir } from './assistant'
+import { quietDir } from './quietDir'
 
 class InputQueue implements AsyncIterable<SDKUserMessage> {
   private items: SDKUserMessage[] = []
@@ -104,6 +104,7 @@ type Live = {
   partial?: string
   partialTimer?: ReturnType<typeof setTimeout>
   tasks: Map<string, BackgroundTask>
+  tools: Map<string, Activity>
 }
 
 const TASK_KINDS: Record<string, string> = { local_agent: 'Subagent', local_workflow: 'Workflow', local_bash: 'Shell', shell: 'Shell', workflow: 'Workflow', subagent: 'Subagent', monitor: 'Monitor' }
@@ -302,7 +303,7 @@ export class Runner {
       }
     })
 
-    const l: Live = { key: tempId, pendingTitle: title, info, input, q, pending, effort: req.effort, tasks: new Map() }
+    const l: Live = { key: tempId, pendingTitle: title, info, input, q, pending, effort: req.effort, tasks: new Map(), tools: new Map() }
     liveRef = l
     this.live.set(tempId, l)
     this.publish(l)
@@ -354,14 +355,23 @@ export class Runner {
           if (l.info.state !== 'waiting') l.info.state = 'running'
           for (const block of msg.message.content) {
             if (block.type === 'text' && block.text.trim()) this.emit({ type: 'text', sessionId: l.key, text: block.text })
-            if (block.type === 'tool_use' && !msg.parent_tool_use_id) l.info.activity = toolActivity(block.name, (block.input ?? {}) as Record<string, unknown>)
+            if (block.type === 'tool_use' && !msg.parent_tool_use_id) {
+              const activity = toolActivity(block.name, (block.input ?? {}) as Record<string, unknown>)
+              l.tools.set(block.id, activity)
+              l.info.activity = activity
+            }
           }
           this.publish(l)
-        } else if (msg.type === 'user' && !msg.parent_tool_use_id && l.info.activity?.kind === 'tool') {
-          l.info.activity = { kind: 'thinking' }
-          this.publish(l)
+        } else if (msg.type === 'user' && !msg.parent_tool_use_id) {
+          const content = (msg.message as { content?: unknown }).content
+          const done = Array.isArray(content) ? content.filter((b): b is { type: 'tool_result'; tool_use_id: string } => b?.type === 'tool_result').map((b) => b.tool_use_id) : []
+          if (done.some((id) => l.tools.delete(id))) {
+            l.info.activity = [...l.tools.values()].pop() ?? { kind: 'thinking' }
+            this.publish(l)
+          }
         } else if (msg.type === 'result') {
           l.info.activity = undefined
+          l.tools.clear()
           this.setPartial(l, '')
           void this.applyTitle(l)
           l.info.costUsd += msg.total_cost_usd
@@ -457,7 +467,7 @@ export class Runner {
 
   models(): Promise<ModelOption[]> {
     if (this.modelCache && Date.now() - this.modelCache.at < MODELS_TTL_MS) return this.modelCache.list
-    const list = this.withQuery(homedir(), async (q) => {
+    const list = this.withQuery(quietDir(), async (q) => {
       const seen = new Set<string>()
       return (await q.supportedModels()).flatMap((m) => {
         const id = m.resolvedModel ?? m.value
