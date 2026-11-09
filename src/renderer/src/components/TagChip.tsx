@@ -8,6 +8,10 @@ export const TAG_HEX: Record<TagColor, string> = {
   orange: '#F59E0B',
   red: '#E5484D',
   purple: '#8B5CF6',
+  teal: '#14B8A6',
+  pink: '#EC4899',
+  yellow: '#CA8A04',
+  indigo: '#6366F1',
   gray: '#8A8A85'
 }
 

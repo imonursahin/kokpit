@@ -11,13 +11,13 @@ export const NOTIFY_EVENTS = [
 
 export type NotifyEvent = (typeof NOTIFY_EVENTS)[number]['id']
 
-export const TAG_COLORS = ['blue', 'green', 'orange', 'red', 'purple', 'gray'] as const
+export const TAG_COLORS = ['blue', 'green', 'orange', 'red', 'purple', 'teal', 'pink', 'yellow', 'indigo', 'gray'] as const
 
 export type TagColor = (typeof TAG_COLORS)[number]
 
 export type SessionTag = { id: string; name: string; color: TagColor }
 
-export const MAX_SESSION_TAGS = 5
+export const MAX_SESSION_TAGS = 10
 
 export type KokpitSettings = {
   defaultModel: string

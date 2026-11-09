@@ -22,7 +22,7 @@ test('keeps a known permission mode and ignores an unknown one', () => {
   expect(sanitizeSettings({ defaultMode: 'yolo' }).defaultMode).toBe(DEFAULT_SETTINGS.defaultMode)
 })
 
-test('session tags keep up to five named, coloured tags and drop assignments to deleted tags', async () => {
+test('session tags keep up to ten named, coloured tags and drop assignments to deleted tags', async () => {
   const { sanitizeSettings } = await import('./settings')
   const sid = '8a4cae0f-947f-4aee-bad7-8e4a27ebc714'
   const s = sanitizeSettings({
@@ -30,7 +30,7 @@ test('session tags keep up to five named, coloured tags and drop assignments to 
       { id: 'deploy', name: '  Waiting for deploy  ', color: 'blue' },
       { id: 'deploy', name: 'duplicate', color: 'red' },
       { id: 'Bad Id', name: 'x', color: 'red' },
-      { id: 'review', name: 'Review', color: 'pink' }
+      { id: 'review', name: 'Review', color: 'magenta' }
     ],
     sessionTagOf: { [sid]: 'deploy', 'not-a-session': 'deploy', 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee': 'gone' }
   })
@@ -40,6 +40,7 @@ test('session tags keep up to five named, coloured tags and drop assignments to 
   ])
   expect(s.sessionTagOf).toEqual({ [sid]: 'deploy' })
   expect(sanitizeSettings({ sessionTags: [] }, s).sessionTagOf).toEqual({})
-  const six = Array.from({ length: 6 }, (_, i) => ({ id: `t${i}`, name: `T${i}`, color: 'blue' }))
-  expect(() => sanitizeSettings({ sessionTags: six })).toThrow('up to 5')
+  const ten = Array.from({ length: 10 }, (_, i) => ({ id: `t${i}`, name: `T${i}`, color: 'blue' }))
+  expect(sanitizeSettings({ sessionTags: ten }).sessionTags).toHaveLength(10)
+  expect(() => sanitizeSettings({ sessionTags: [...ten, { id: 't10', name: 'T10', color: 'red' }] })).toThrow('up to 10')
 })
