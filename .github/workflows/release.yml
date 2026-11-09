@@ -65,10 +65,8 @@ jobs:
           path: |
             ~/Library/Caches/electron
             ~/Library/Caches/electron-builder
-          key: electron-dl-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package-lock.json') }}-${{ github.run_id }}
-          restore-keys: |
-            electron-dl-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package-lock.json') }}-
-            electron-dl-${{ runner.os }}-${{ runner.arch }}-
+          key: electron-dl-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}
+          restore-keys: electron-dl-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Install, test and build
         env:
@@ -87,7 +85,7 @@ jobs:
           path: |
             ~/Library/Caches/electron
             ~/Library/Caches/electron-builder
-          key: electron-dl-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package-lock.json') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: electron-dl-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Publish the release
         run: |
