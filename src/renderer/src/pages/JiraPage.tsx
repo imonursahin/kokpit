@@ -256,6 +256,19 @@ export function JiraPage({
   const taskKey = task?.key
 
   useEffect(() => {
+    if (!taskKey) return
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'n') {
+        e.preventDefault()
+        e.stopImmediatePropagation()
+        onNewSession(taskKey)
+      }
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [taskKey, onNewSession])
+
+  useEffect(() => {
     if (!api || !taskKey) return
     let alive = true
     setPrs({ key: taskKey })
