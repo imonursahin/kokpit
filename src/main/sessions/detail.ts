@@ -321,7 +321,7 @@ function transcriptFiles(edits: EditRecord[], base: string): DetailFile[] {
 
 const PLAN_FILE = /(^|\/)([^/]*plan[^/]*\.md|plans\/[^/]+\.md)$/i
 
-export async function buildDetail(item: SessionIndexItem, nowMs = Date.now(), opts: { sidechain?: boolean; maxTurns?: number } = {}): Promise<SessionDetailData> {
+export async function buildDetail(item: SessionIndexItem, nowMs = Date.now(), opts: { sidechain?: boolean; maxTurns?: number; processAlive?: boolean } = {}): Promise<SessionDetailData> {
   const maxTurns = opts.maxTurns ?? MAX_TURNS
   const turns: DetailTurn[] = []
   const steps = new Map<string, DetailStep>()
@@ -542,7 +542,7 @@ export async function buildDetail(item: SessionIndexItem, nowMs = Date.now(), op
   if (!running) {
     for (const [id, s] of steps) {
       if (s.state !== 'running') continue
-      const live = background.has(id) && s.workflow && (await workflowActive(item.file, s.workflow.runId, nowMs))
+      const live = opts.processAlive !== false && background.has(id) && s.workflow && (await workflowActive(item.file, s.workflow.runId, nowMs))
       if (!live) s.state = 'done'
     }
   }

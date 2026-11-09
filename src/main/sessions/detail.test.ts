@@ -261,6 +261,9 @@ test('a background workflow shows as running until its completion notice, which 
     return d.turns.flatMap((t) => (t.kind === 'claude' ? t.steps : [])).find((s) => s.workflow)
   }
   expect(await stepOf()).toMatchObject({ state: 'running', meta: 'in background', workflow: { runId: 'wf_abc-1', name: 'dev-pipeline-run' } })
+  writeFileSync(file, lines.map((l) => JSON.stringify(l)).join('\n'))
+  const afterRestart = await buildDetail({ ...item }, Date.now(), { processAlive: false })
+  expect(afterRestart.turns.flatMap((t) => (t.kind === 'claude' ? t.steps : [])).find((s) => s.workflow)?.state).toBe('done')
   lines.push({ type: 'user', timestamp: '2026-01-01T10:05:00Z', message: { content: '<task-notification>\n<task-id>w1</task-id>\n<tool-use-id>wf1</tool-use-id>\n<status>completed</status>\n</task-notification>' } })
   expect(await stepOf()).toMatchObject({ state: 'done', meta: 'finished in background' })
 })
