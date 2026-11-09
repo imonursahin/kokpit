@@ -271,7 +271,7 @@ export function App() {
       )
       break
     case 'jira':
-      main = <JiraPage onOpenSession={open} onNewSession={(key) => setNewSession({ jiraKey: key })} onConnect={() => setPage('connections')} />
+      main = <JiraPage sessions={visible} onOpenSession={open} onNewSession={(key) => setNewSession({ jiraKey: key })} onConnect={() => setPage('connections')} />
       break
     case 'connections':
       main = <ConnectionsPage />

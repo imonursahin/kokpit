@@ -3,7 +3,6 @@ import type { JiraIssue, PullRequestInfo } from '@shared/integrations'
 import { relativeTime } from '@shared/time'
 import type { SessionStatus, SessionSummary } from '@shared/types'
 import { errorText, useConnectionStatus } from '@/data/useIntegrations'
-import { toSummary, useSessions } from '@/data/useSessions'
 import { SessionRow } from '@/components/SessionRow'
 import { SelectChip } from '@/components/Menu'
 import { Status } from '@/components/Status'
@@ -173,16 +172,17 @@ function Meta({ label, value }: { label: string; value: string | number }) {
 }
 
 export function JiraPage({
+  sessions,
   onOpenSession,
   onNewSession,
   onConnect
 }: {
+  sessions: SessionSummary[]
   onOpenSession: (id: string) => void
   onNewSession: (jiraKey: string) => void
   onConnect?: () => void
 }) {
   const api = window.kokpit
-  const { items } = useSessions()
   const status = useConnectionStatus()
   const jira = status.list?.find((c) => c.id === 'jira')
   const [tab, setTab] = useState<Tab>('open')
@@ -223,12 +223,11 @@ export function JiraPage({
   const allTasks = useMemo<JiraTask[]>(() => {
     if (!api) return MOCK_JIRA_TASKS
     const byKey = new Map<string, SessionSummary[]>()
-    for (const item of items) {
-      if (!item.jira) continue
-      const s = toSummary(item, nowMs)
-      const list = byKey.get(item.jira)
+    for (const s of sessions) {
+      if (!s.jira) continue
+      const list = byKey.get(s.jira)
       if (list) list.push(s)
-      else byKey.set(item.jira, [s])
+      else byKey.set(s.jira, [s])
     }
     return (issues ?? []).map((i) => ({
       key: i.key,
@@ -245,7 +244,7 @@ export function JiraPage({
       sessions: byKey.get(i.key) ?? [],
       prs: []
     }))
-  }, [api, issues, items, nowMs])
+  }, [api, issues, sessions, nowMs])
 
   const sprints = useMemo(() => [...new Set(allTasks.map((t) => t.sprint).filter(Boolean))].sort(), [allTasks])
   const inSprint = useMemo(() => allTasks.filter((t) => !sprint || t.sprint === sprint), [allTasks, sprint])
