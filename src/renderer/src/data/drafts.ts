@@ -40,3 +40,16 @@ export function resetDraftsForTest(): void {
   drafts = null
   if (timer) clearTimeout(timer)
 }
+
+export type QueuedMessage = { id: number; text: string; before: number; uuid?: string }
+
+const queued = new Map<string, QueuedMessage[]>()
+
+export function getQueued(id: string): QueuedMessage[] {
+  return queued.get(id) ?? []
+}
+
+export function setQueued(id: string, list: QueuedMessage[]): void {
+  if (list.length) queued.set(id, list)
+  else queued.delete(id)
+}

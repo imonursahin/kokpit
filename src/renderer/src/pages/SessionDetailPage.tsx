@@ -11,7 +11,7 @@ import { Status } from '@/components/Status'
 import { Markdown } from '@/components/Markdown'
 import { openJiraIssue, PrChip } from '@/components/LinkChips'
 import { TagPicker } from '@/components/TagChip'
-import { getDraft, setDraft } from '@/data/drafts'
+import { getDraft, getQueued, setDraft, setQueued, type QueuedMessage } from '@/data/drafts'
 import type { SessionTag } from '@shared/settings'
 import { StepRow, SubagentOpen, type Step } from '@/components/StepRow'
 import { useSlashCommands } from '@/components/SlashCommands'
@@ -1783,7 +1783,10 @@ function Detail({
   useEffect(() => {
     if (draftKey) setDraft(draftKey, text)
   }, [draftKey, text])
-  const [outbox, setOutbox] = useState<{ id: number; text: string; before: number; uuid?: string }[]>([])
+  const [outbox, setOutbox] = useState<QueuedMessage[]>(() => (draftKey ? getQueued(draftKey) : []))
+  useEffect(() => {
+    if (draftKey) setQueued(draftKey, outbox)
+  }, [draftKey, outbox])
   const sentTexts = useMemo(() => data.turns.flatMap((t) => (t.kind === 'user' ? [richToText(t.text)] : [])), [data.turns])
   const countSent = (t: string) => sentTexts.filter((x) => sameMessage(x, t)).length
   useEffect(() => {
@@ -2076,7 +2079,9 @@ function Detail({
         })
       )
       .then((uuid) => {
-        if (typeof uuid === 'string' && alive.current) setOutbox((o) => o.map((m) => (m.id === id ? { ...m, uuid } : m)))
+        if (typeof uuid !== 'string') return
+        if (alive.current) setOutbox((o) => o.map((m) => (m.id === id ? { ...m, uuid } : m)))
+        else if (draftKey) setQueued(draftKey, getQueued(draftKey).map((m) => (m.id === id ? { ...m, uuid } : m)))
       })
       .catch((err: unknown) => {
         if (target && alive.current) setRewindTo(target)
