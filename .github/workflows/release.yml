@@ -59,6 +59,13 @@ jobs:
           node scripts/release-notes.cjs subjects.txt > notes.md
           cat notes.md
 
+      - name: Cache the Electron download
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/electron
+          key: electron-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: electron-${{ runner.os }}-${{ runner.arch }}-
+
       - name: Install, test and build
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
