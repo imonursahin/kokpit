@@ -85,6 +85,7 @@ export function useFileMentions(
             key={f}
             role="option"
             aria-selected={i === active}
+            ref={i === active ? (el) => el?.scrollIntoView({ block: 'nearest' }) : undefined}
             onMouseDown={(e) => {
               e.preventDefault()
               pick(f)

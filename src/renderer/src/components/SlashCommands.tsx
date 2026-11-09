@@ -104,6 +104,7 @@ export function useSlashCommands(
           key={c.name}
           role="option"
           aria-selected={i === active}
+          ref={i === active ? (el) => el?.scrollIntoView({ block: 'nearest' }) : undefined}
           onMouseDown={(e) => {
             e.preventDefault()
             pick(c)
