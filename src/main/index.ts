@@ -1,10 +1,11 @@
-import { app, BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow, clipboard, Menu, shell } from 'electron'
 import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { registerIpc } from './ipc'
 import { focusAndNavigate, KokpitTray } from './tray'
 import { loadLoginPath } from './shellEnv'
 import { lockNavigation } from './navigation'
+import { contextMenuTemplate } from './contextMenu'
 
 let main: BrowserWindow | null = null
 
@@ -64,7 +65,13 @@ function loadRenderer(win: BrowserWindow, hash?: string): void {
   }
 }
 
-app.on('web-contents-created', (_e, contents) => lockNavigation(contents, (url) => shell.openExternal(url)))
+app.on('web-contents-created', (_e, contents) => {
+  lockNavigation(contents, (url) => shell.openExternal(url))
+  contents.on('context-menu', (_ev, params) => {
+    const template = contextMenuTemplate(params, { openLink: (url) => void shell.openExternal(url), copyText: (text) => clipboard.writeText(text) })
+    if (template.length) Menu.buildFromTemplate(template).popup()
+  })
+})
 
 void app.whenReady().then(async () => {
   if (process.platform === 'darwin' && !app.isPackaged) app.dock?.setIcon(join(app.getAppPath(), 'build', 'icon.png'))
