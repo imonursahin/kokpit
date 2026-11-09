@@ -1,6 +1,7 @@
 import type { SessionSummary } from '@shared/types'
 import { Dash, Icon, PrimaryButton, SecondaryButton } from './primitives'
 import { Status } from './Status'
+import { TagChip } from './TagChip'
 import { JiraChip, PrChip } from './LinkChips'
 
 const SUB_COLOR = { running: 'var(--run)', waiting: 'var(--wait-tx)', error: 'var(--err)', done: 'var(--tx3)' } as const
@@ -75,6 +76,7 @@ export function SessionRow({
           <span style={{ fontSize: 13.5, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>
             {s.title}
           </span>
+          {s.tag && <TagChip name={s.tag.name} color={s.tag.color} />}
           {onPin ? (
             <button
               className={`row-pin${s.pinned ? ' on' : ''}`}

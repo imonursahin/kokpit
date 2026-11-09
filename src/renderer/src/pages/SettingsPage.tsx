@@ -3,8 +3,11 @@ import {
   DEFAULT_SETTINGS,
   EFFORT_CHOICES,
   GITHUB_REFRESH_CHOICES,
+  MAX_SESSION_TAGS,
   NOTIFY_EVENTS,
+  TAG_COLORS,
   type AppInfo,
+  type SessionTag,
   type DoctorCheck,
   type KokpitSettings,
   type NotifyEvent
@@ -16,6 +19,7 @@ import { Markdown } from '@/components/Markdown'
 import { TerminalModal } from '@/components/TerminalModal'
 import { useUpdate } from '@/data/useUpdate'
 import { useModels } from '@/data/useModels'
+import { TAG_HEX } from '@/components/TagChip'
 
 const MONO = "'Geist Mono',monospace"
 
@@ -133,6 +137,60 @@ function Toggle({ on, onChange, label }: { on: boolean; onChange: (v: boolean) =
         />
       </span>
     </button>
+  )
+}
+
+function TagEditor({ tags, onChange }: { tags: SessionTag[]; onChange: (tags: SessionTag[]) => void }) {
+  const update = (id: string, patch: Partial<SessionTag>) => onChange(tags.map((t) => (t.id === id ? { ...t, ...patch } : t)))
+  const add = () => {
+    const color = TAG_COLORS.find((c) => !tags.some((t) => t.color === c)) ?? 'gray'
+    onChange([...tags, { id: `tag-${Date.now().toString(36)}`, name: 'New tag', color }])
+  }
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '14px 0' }}>
+      {tags.length === 0 && <span style={{ fontSize: 12.5, color: 'var(--tx3)' }}>No tags yet. Add one, for example “Waiting for deploy”.</span>}
+      {tags.map((t) => (
+        <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span role="radiogroup" aria-label={`Colour of ${t.name}`} style={{ display: 'flex', gap: 5 }}>
+            {TAG_COLORS.map((c) => (
+              <button
+                key={c}
+                role="radio"
+                aria-checked={t.color === c}
+                aria-label={c}
+                title={c}
+                onClick={() => update(t.id, { color: c })}
+                style={{ width: 18, height: 18, borderRadius: '50%', background: TAG_HEX[c], cursor: 'pointer', boxShadow: t.color === c ? '0 0 0 2px var(--panel), 0 0 0 4px var(--tx2)' : 'none' }}
+              />
+            ))}
+          </span>
+          <input
+            key={`${t.id}-${t.name}`}
+            aria-label="Tag name"
+            defaultValue={t.name}
+            maxLength={24}
+            onBlur={(e) => {
+              const name = e.target.value.trim()
+              if (name && name !== t.name) update(t.id, { name })
+              else e.target.value = t.name
+            }}
+            onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+            style={{ flex: 1, minWidth: 0, height: 30, padding: '0 10px', borderRadius: 7, border: '1px solid var(--line)', background: 'var(--panel)', color: 'var(--tx)', font: 'inherit', fontSize: 13 }}
+          />
+          <button aria-label={`Delete ${t.name}`} title="Delete tag" onClick={() => onChange(tags.filter((x) => x.id !== t.id))} style={{ display: 'flex', padding: 4, borderRadius: 6, cursor: 'pointer' }}>
+            <Icon name="delete" size={17} color="var(--tx3)" />
+          </button>
+        </div>
+      ))}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <Action onClick={add} disabled={tags.length >= MAX_SESSION_TAGS}>
+          <Icon name="add" size={16} /> Add tag
+        </Action>
+        <span style={{ fontSize: 12, color: 'var(--tx3)' }}>
+          {tags.length}/{MAX_SESSION_TAGS} · Deleting a tag removes it from its sessions
+        </span>
+      </div>
+    </div>
   )
 }
 
@@ -579,6 +637,12 @@ export function SettingsPage({
                     onChange={(v) => void save({ includeDraftReviews: v })}
                   />
                 </Row>
+              </Group>
+            )}
+
+            {section === 'sessions' && (
+              <Group title="Session tags">
+                <TagEditor tags={settings?.sessionTags ?? []} onChange={(sessionTags) => void save({ sessionTags })} />
               </Group>
             )}
 

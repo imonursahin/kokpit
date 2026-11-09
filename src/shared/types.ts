@@ -16,6 +16,7 @@ export type SessionSummary = {
   cost: string
   unread?: boolean
   pinned?: boolean
+  tag?: { name: string; color: string }
 }
 
 export type Page =

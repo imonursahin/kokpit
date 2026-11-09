@@ -10,6 +10,8 @@ import { Icon, KeyHint, Spinner } from '@/components/primitives'
 import { Status } from '@/components/Status'
 import { Markdown } from '@/components/Markdown'
 import { openJiraIssue } from '@/components/LinkChips'
+import { TagPicker } from '@/components/TagChip'
+import type { SessionTag } from '@shared/settings'
 import { StepRow, SubagentOpen, type Step } from '@/components/StepRow'
 import { useSlashCommands } from '@/components/SlashCommands'
 import { useFileMentions } from '@/components/FileMentions'
@@ -364,7 +366,10 @@ function Header({
   onBack,
   onOpenPanel,
   onRename,
-  onDelete
+  onDelete,
+  tags,
+  tagId,
+  onTag
 }: {
   h: SessionHeader
   linkPlaceholders: boolean
@@ -373,6 +378,9 @@ function Header({
   onOpenPanel: () => void
   onRename?: (t: string) => Promise<void>
   onDelete?: () => void
+  tags?: SessionTag[]
+  tagId?: string
+  onTag?: (tagId: string | null) => void
 }) {
   const chip: CSSProperties = {
     display: 'flex',
@@ -405,6 +413,7 @@ function Header({
         <span style={{ color: 'var(--tx3)' }}>/</span>
         <EditableTitle key={h.title} title={h.title} onRename={onRename} />
         <Status status={h.status} label />
+        {onTag && <TagPicker tags={tags ?? []} tagId={tagId} onTag={onTag} />}
         <span style={{ flex: 1 }} />
         {h.context && <ContextMeter used={h.context.used} window={h.context.window} />}
         <span style={{ fontSize: 12, color: 'var(--tx3)' }}>{h.elapsed}</span>
@@ -1677,6 +1686,9 @@ function EmptyPanel({ text }: { text: string }) {
 
 type LiveProps = {
   live?: LiveSession
+  tags?: SessionTag[]
+  tagId?: string
+  onTag?: (tagId: string | null) => void
   onSend?: (text: string, opts?: { model?: string; effort?: string; mode?: RunnerMode; images?: ImageInput[]; rewindAt?: string }) => Promise<string | void>
   onCancelQueued?: (uuid: string) => Promise<boolean>
   onRewindFiles?: (uuid: string, dryRun: boolean) => Promise<RewindResult>
@@ -1723,6 +1735,9 @@ function Detail({
   onAddToJira,
   onAttach,
   onRename,
+  tags,
+  tagId,
+  onTag,
   onDelete,
   modelOptions,
   effortOptions,
@@ -2234,6 +2249,9 @@ function Detail({
         onBack={onBack}
         onOpenPanel={() => setPanelOpen(true)}
         onRename={onRename}
+        tags={tags}
+        tagId={tagId}
+        onTag={onTag}
         onDelete={
           onDelete
             ? () => {

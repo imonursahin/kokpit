@@ -157,9 +157,11 @@ export function App() {
       .map((s) => {
         const at = lastAt.get(s.id) ?? ''
         const unread = !!seen && s.status === 'done' && (seen[s.id] ?? '') < at
-        return unread || pinned.has(s.id) ? { ...s, unread, pinned: pinned.has(s.id) } : s
+        const tagId = settings?.sessionTagOf?.[s.id]
+        const tag = tagId ? settings?.sessionTags.find((t) => t.id === tagId) : undefined
+        return unread || pinned.has(s.id) || tag ? { ...s, unread, pinned: pinned.has(s.id), tag: tag ? { name: tag.name, color: tag.color } : undefined } : s
       })
-  }, [sessions, archived, pinned, items, seen])
+  }, [sessions, archived, pinned, items, seen, settings])
 
   const counts = useMemo(
     () => ({
@@ -388,6 +390,18 @@ export function App() {
             onLoadEarlier={() => setTurnLimit({ id: effectiveId ?? '', n: maxTurns + 100 })}
             onAttach={() => window.kokpit?.pickFiles() ?? Promise.resolve([])}
             onRename={detail.data ? (title) => window.kokpit?.renameSession(id, title) ?? Promise.resolve() : undefined}
+            tags={settings?.sessionTags}
+            tagId={settings?.sessionTagOf?.[id]}
+            onTag={
+              settings && /^[0-9a-f-]{36}$/i.test(id)
+                ? (tagId) => {
+                    const next = { ...settings.sessionTagOf }
+                    if (tagId) next[id] = tagId
+                    else delete next[id]
+                    void updateSettings({ sessionTagOf: next })
+                  }
+                : undefined
+            }
             onDelete={
               detail.data
                 ? async () => {

@@ -2,11 +2,11 @@ import { existsSync, statSync } from 'node:fs'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { MODES } from '../shared/runner'
-import { DEFAULT_SETTINGS, EFFORT_CHOICES, GITHUB_REFRESH_CHOICES, MODEL_CHOICES, NOTIFY_EVENTS, type KokpitSettings } from '../shared/settings'
+import { DEFAULT_SETTINGS, EFFORT_CHOICES, GITHUB_REFRESH_CHOICES, MAX_SESSION_TAGS, MODEL_CHOICES, NOTIFY_EVENTS, TAG_COLORS, type KokpitSettings, type SessionTag } from '../shared/settings'
 
 export function sanitizeSettings(input: unknown, base: KokpitSettings = DEFAULT_SETTINGS): KokpitSettings {
   const o = typeof input === 'object' && input !== null ? (input as Record<string, unknown>) : {}
-  const out = { ...base, notify: { ...DEFAULT_SETTINGS.notify, ...base.notify } }
+  const out = { ...base, sessionTags: base.sessionTags ?? [], sessionTagOf: base.sessionTagOf ?? {}, notify: { ...DEFAULT_SETTINGS.notify, ...base.notify } }
   if (typeof o['defaultModel'] === 'string' && (MODEL_CHOICES.some((m) => m.id === o['defaultModel']) || /^claude-[a-z0-9.-]{1,60}$/.test(o['defaultModel'])))
     out.defaultModel = o['defaultModel']
   if (typeof o['defaultEffort'] === 'string' && (EFFORT_CHOICES as string[]).includes(o['defaultEffort']))
@@ -32,6 +32,27 @@ export function sanitizeSettings(input: unknown, base: KokpitSettings = DEFAULT_
       if (typeof v === 'boolean') out.notify[e.id] = v
     }
   }
+  if (Array.isArray(o['sessionTags'])) {
+    const tags: SessionTag[] = []
+    for (const raw of o['sessionTags']) {
+      const t = typeof raw === 'object' && raw !== null ? (raw as Record<string, unknown>) : {}
+      const id = typeof t['id'] === 'string' ? t['id'] : ''
+      const name = typeof t['name'] === 'string' ? t['name'].trim().slice(0, 24) : ''
+      const color = (TAG_COLORS as readonly string[]).includes(String(t['color'])) ? (t['color'] as SessionTag['color']) : 'gray'
+      if (!/^[a-z0-9-]{1,40}$/.test(id) || !name || tags.some((x) => x.id === id)) continue
+      tags.push({ id, name, color })
+    }
+    if (tags.length > MAX_SESSION_TAGS) throw new Error(`You can have up to ${MAX_SESSION_TAGS} session tags`)
+    out.sessionTags = tags
+  }
+  if (typeof o['sessionTagOf'] === 'object' && o['sessionTagOf'] !== null && !Array.isArray(o['sessionTagOf'])) {
+    out.sessionTagOf = {}
+    for (const [sid, tid] of Object.entries(o['sessionTagOf'] as Record<string, unknown>).slice(0, 5000)) {
+      if (/^[0-9a-f-]{36}$/i.test(sid) && typeof tid === 'string') out.sessionTagOf[sid] = tid
+    }
+  }
+  const tagIds = new Set(out.sessionTags.map((t) => t.id))
+  out.sessionTagOf = Object.fromEntries(Object.entries(out.sessionTagOf ?? {}).filter(([, tid]) => tagIds.has(tid)))
   if (typeof o['assistantHome'] === 'string') {
     const p = o['assistantHome'].trim()
     if (p && !p.startsWith('/')) throw new Error('Assistant folder must be an absolute path')

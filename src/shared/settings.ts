@@ -11,6 +11,14 @@ export const NOTIFY_EVENTS = [
 
 export type NotifyEvent = (typeof NOTIFY_EVENTS)[number]['id']
 
+export const TAG_COLORS = ['blue', 'green', 'orange', 'red', 'purple', 'gray'] as const
+
+export type TagColor = (typeof TAG_COLORS)[number]
+
+export type SessionTag = { id: string; name: string; color: TagColor }
+
+export const MAX_SESSION_TAGS = 5
+
 export type KokpitSettings = {
   defaultModel: string
   defaultEffort: RunnerEffort
@@ -24,6 +32,8 @@ export type KokpitSettings = {
   notifyWhenFocused: boolean
   menuBar: boolean
   notify: Record<NotifyEvent, boolean>
+  sessionTags: SessionTag[]
+  sessionTagOf: Record<string, string>
 }
 
 export const GITHUB_REFRESH_CHOICES = [1, 2, 5, 10, 30]
@@ -40,6 +50,8 @@ export const DEFAULT_SETTINGS: KokpitSettings = {
   notifyEnabled: true,
   notifyWhenFocused: false,
   menuBar: true,
+  sessionTags: [],
+  sessionTagOf: {},
   notify: { sessionWaiting: false, sessionDone: false, sessionError: false, prChecksFailed: false, prChangesRequested: false, prReviewRequested: false }
 }
 
