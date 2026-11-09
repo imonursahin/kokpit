@@ -96,6 +96,13 @@ function promptText(content: unknown): string {
   return ''
 }
 
+export function slashCommand(text: string): string {
+  const name = /<command-name>([^<]*)<\/command-name>/.exec(text)?.[1]?.trim()
+  if (!name) return ''
+  const args = /<command-args>([\s\S]*?)<\/command-args>/.exec(text)?.[1]?.trim() ?? ''
+  return `${name.startsWith('/') ? name : `/${name}`}${args ? ` ${args}` : ''}`
+}
+
 function isNoisePrompt(text: string): boolean {
   const t = text.trimStart()
   return (
@@ -199,8 +206,9 @@ export class SessionAccumulator {
       }
     }
     const text = promptText(content)
-    if (!isNoisePrompt(text)) {
-      if (!this.s.firstPrompt) this.s.firstPrompt = firstLine(text)
+    const command = slashCommand(text)
+    if (command || !isNoisePrompt(text)) {
+      if (!this.s.firstPrompt) this.s.firstPrompt = firstLine(command || text)
       this.s.lastStopReason = ''
     }
     this.s.pendingTool = [...this.pending.values()].at(-1) ?? ''

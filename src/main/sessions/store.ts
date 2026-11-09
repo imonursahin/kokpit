@@ -179,7 +179,7 @@ export class SessionStore {
     const cli = this.cliStatuses()
     for (const [file, entry] of Object.entries(this.cache.entries)) {
       const s = entry.state.summary
-      if (!s.firstPrompt && !s.title) continue
+      if (!s.firstPrompt && !s.title && !s.customTitle) continue
       const lastAtMs = Date.parse(s.lastAt) || entry.mtimeMs
       const status = deriveStatus(
         { lastAtMs, pendingTool: s.pendingTool, lastWasApiError: s.lastWasApiError, lastStopReason: s.lastStopReason, cli: cli.get(s.sessionId) },
