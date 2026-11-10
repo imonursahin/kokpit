@@ -9,7 +9,7 @@ import { DiffFileHeader, type DiffFile } from '@/components/DiffFileHeader'
 import { Icon, KeyHint, Spinner } from '@/components/primitives'
 import { Status } from '@/components/Status'
 import { Markdown } from '@/components/Markdown'
-import { openJiraIssue, PrChip } from '@/components/LinkChips'
+import { JiraChip, openJiraIssue, PrChip } from '@/components/LinkChips'
 import { TagPicker } from '@/components/TagChip'
 import { getDraft, getQueued, setDraft, setQueued, type QueuedMessage } from '@/data/drafts'
 import type { SessionTag } from '@shared/settings'
@@ -446,13 +446,15 @@ function Header({
         </span>
         {(linkPlaceholders || h.jira || h.pr) && <span style={{ color: 'var(--line)' }}>|</span>}
         {h.jira ? (
-          <button onClick={() => h.jira && openJiraIssue(h.jira.key)} title="Open in Jira" style={{ ...chip, cursor: 'pointer' }}>
-            <Icon name="task_alt" size={14} color="var(--run)" />
-            <span style={{ font: `500 11.5px/1 ${MONO}`, color: 'var(--tx)' }}>{h.jira.key}</span>
-            {h.jira.title && (
-              <span style={{ maxWidth: 300, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{h.jira.title}</span>
-            )}
-          </button>
+          <JiraChip jiraKey={h.jira.key} align="left">
+            <span role="button" tabIndex={0} aria-label={`Open ${h.jira.key} in Jira`} onKeyDown={(e) => e.key === 'Enter' && h.jira && openJiraIssue(h.jira.key)} style={{ ...chip, cursor: 'pointer' }}>
+              <Icon name="task_alt" size={14} color="var(--run)" />
+              <span style={{ font: `500 11.5px/1 ${MONO}`, color: 'var(--tx)' }}>{h.jira.key}</span>
+              {h.jira.title && (
+                <span style={{ maxWidth: 300, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{h.jira.title}</span>
+              )}
+            </span>
+          </JiraChip>
         ) : (
           linkPlaceholders && (
             <button

@@ -79,7 +79,7 @@ export function openJiraIssue(jiraKey: string): void {
   void cached(`jira:${jiraKey}`, () => api?.integrations.jiraIssue(jiraKey) ?? Promise.resolve(null)).then((i) => i && open(i.url))
 }
 
-export function JiraChip({ jiraKey }: { jiraKey: string }) {
+export function JiraChip({ jiraKey, align, children }: { jiraKey: string; align?: 'left' | 'right'; children?: ReactNode }) {
   const api = window.kokpit
   const { open: isOpen, data, show, hide } = useHoverLoad(`jira:${jiraKey}`, () => api?.integrations.jiraIssue(jiraKey) ?? Promise.resolve(null))
   const issue = data.state === 'ready' ? data.data : null
@@ -95,11 +95,13 @@ export function JiraChip({ jiraKey }: { jiraKey: string }) {
         else openJiraIssue(jiraKey)
       }}
     >
-      <span style={{ cursor: 'pointer' }}>
-        <JiraKey>{jiraKey}</JiraKey>
-      </span>
+      {children ?? (
+        <span style={{ cursor: 'pointer' }}>
+          <JiraKey>{jiraKey}</JiraKey>
+        </span>
+      )}
       {isOpen && (
-        <Popover width={340}>
+        <Popover width={340} align={align}>
           {data.state === 'loading' && (
             <Note>
               <Spinner size={11} /> Loading {jiraKey}…
