@@ -945,6 +945,21 @@ function WorkflowModal({ sessionId, runId, onOpenStep, onClose }: { sessionId: s
   )
 }
 
+export function turnKeys(turns: Turn[]): [Turn, string][] {
+  let anchor = 'start'
+  let n = 0
+  return turns.map((t) => {
+    if (t.kind === 'earlier') return [t, 'earlier']
+    if (t.kind === 'user' && t.uuid) {
+      anchor = t.uuid
+      n = 0
+      return [t, t.uuid]
+    }
+    n += 1
+    return [t, `${anchor}:${n}`]
+  })
+}
+
 function lastClaudeText(turns: Turn[]): string {
   const last = [...turns].reverse().find((t) => t.kind === 'claude')
   if (!last || last.kind !== 'claude') return ''
@@ -1028,14 +1043,14 @@ function WorkBlock({ parts, expanded }: { parts: TurnPart[]; expanded: boolean }
   )
 }
 
-function OrderedParts({ parts, active }: { parts: TurnPart[]; active?: boolean }) {
+function OrderedParts({ parts }: { parts: TurnPart[] }) {
   const lastText = parts.map((p) => p.kind).lastIndexOf('text')
   const final = lastText >= 0 && parts.slice(lastText + 1).every((p) => p.kind === 'thinking') ? lastText : -1
   const answer = final >= 0 ? parts[final] : undefined
   const work = parts.filter((_, i) => i !== final)
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      {work.length > 0 && <WorkBlock parts={work} expanded={!!active || !answer} />}
+      {work.length > 0 && <WorkBlock parts={work} expanded={!answer} />}
       {answer?.kind === 'text' && <Markdown source={answer.text} size={13.5} />}
     </div>
   )
@@ -1044,7 +1059,7 @@ function OrderedParts({ parts, active }: { parts: TurnPart[]; active?: boolean }
 type RewindTarget = { uuid?: string; parentUuid: string; text: string }
 const RewindOpen = createContext<((t: RewindTarget) => void) | null>(null)
 
-function TurnView({ turn, onLoadEarlier, active }: { turn: Turn; onLoadEarlier?: () => void; active?: boolean }) {
+function TurnView({ turn, onLoadEarlier }: { turn: Turn; onLoadEarlier?: () => void }) {
   const rewind = useContext(RewindOpen)
   if (turn.kind === 'earlier')
     return (
@@ -1121,7 +1136,7 @@ function TurnView({ turn, onLoadEarlier, active }: { turn: Turn; onLoadEarlier?:
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flexShrink: 0 }}>
       {turn.name && <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--tx2)' }}>Claude</div>}
       {turn.parts?.length ? (
-        <OrderedParts parts={turn.parts} active={active} />
+        <OrderedParts parts={turn.parts} />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           {turn.steps.map((s, i) => (
@@ -2337,8 +2352,8 @@ function Detail({
           <div ref={scrollRef} style={{ flex: 1, minHeight: 0, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
             <div style={{ marginTop: 'auto', padding: '20px 32px 12px', display: 'flex', flexDirection: 'column', gap: 20 }}>
               <RewindOpen.Provider value={onSend && sessionCwd && !running ? startRewind : null}>
-                {data.turns.map((t, i) => (
-                  <TurnView key={i} turn={t} onLoadEarlier={onLoadEarlier} active={(running || data.header.status === 'running') && i === data.turns.length - 1} />
+                {turnKeys(data.turns).map(([t, key]) => (
+                  <TurnView key={key} turn={t} onLoadEarlier={onLoadEarlier} />
                 ))}
               </RewindOpen.Provider>
               {running && partial && !lastClaudeText(data.turns).includes(partial.trim().slice(-120)) && (
