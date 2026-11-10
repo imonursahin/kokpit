@@ -1050,12 +1050,14 @@ export function approvalRequest(p: PendingAsk, cwd: string): ApprovalRequest {
   return { type: 'command', action: p.title, command: p.detail, cwd, rule: p.toolName, waited }
 }
 
+export const runsInBackground = (st: Step) => st.state === 'running' && (st.meta === 'in background' || !!st.agent)
+
 function WorkBlock({ parts }: { parts: TurnPart[] }) {
   const [open, setOpen] = useState(false)
   const steps = parts.flatMap((p) => (p.kind === 'steps' ? p.steps : []))
   const thoughts = parts.filter((p) => p.kind === 'thinking').length
   const errors = steps.filter((st) => st.state === 'error').length
-  const running = steps.filter((st) => st.state === 'running')
+  const running = steps.filter((st) => st.state === 'running' && !runsInBackground(st))
   const summary = [steps.length ? plural(steps.length, 'step') : '', thoughts && !steps.length ? 'thinking' : '']
     .filter(Boolean)
     .join(' · ')
@@ -2141,7 +2143,7 @@ function Detail({
     const fromTranscript = data.turns.flatMap((t) =>
       t.kind === 'claude'
         ? t.steps
-            .filter((st) => st.state === 'running' && (st.meta === 'in background' || !!st.agent))
+            .filter(runsInBackground)
             .map((st, i) => {
               const match = live?.background?.find((b) => b.toolUseId && b.toolUseId === st.toolUseId)
               const taskId = st.taskId || match?.taskId

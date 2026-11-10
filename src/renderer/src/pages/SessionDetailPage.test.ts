@@ -75,3 +75,11 @@ test('the working row says when Claude is retrying the API or compacting', async
   expect(activityLabel({ kind: 'retry', detail: 'API error 529 · attempt 2/10 in 4s' })).toEqual({ label: 'Retrying…', detail: 'API error 529 · attempt 2/10 in 4s' })
   expect(activityLabel({ kind: 'compacting' })).toEqual({ label: 'Compacting conversation…' })
 })
+
+test('background shells and subagents show only in the background list, not again in the work block', async () => {
+  const { runsInBackground } = await import('./SessionDetailPage')
+  expect(runsInBackground({ kind: 'command', label: 'Ran', target: 'vite', state: 'running', meta: 'in background' })).toBe(true)
+  expect(runsInBackground({ kind: 'command', label: 'Agent', target: 'review', state: 'running', agent: { id: 'a', type: 'Explore' } })).toBe(true)
+  expect(runsInBackground({ kind: 'command', label: 'Ran', target: 'npm test', state: 'running' })).toBe(false)
+  expect(runsInBackground({ kind: 'command', label: 'Ran', target: 'vite', state: 'done', meta: 'in background' })).toBe(false)
+})
