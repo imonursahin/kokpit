@@ -1020,15 +1020,13 @@ function ThinkingPart({ text }: { text: string }) {
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 
-function WorkBlock({ parts, expanded }: { parts: TurnPart[]; expanded: boolean }) {
-  const [open, setOpen] = useState(expanded)
-  useEffect(() => setOpen(expanded), [expanded])
+function WorkBlock({ parts }: { parts: TurnPart[] }) {
+  const [open, setOpen] = useState(false)
   const steps = parts.flatMap((p) => (p.kind === 'steps' ? p.steps : []))
-  const notes = parts.filter((p) => p.kind === 'text').length
   const thoughts = parts.filter((p) => p.kind === 'thinking').length
   const errors = steps.filter((st) => st.state === 'error').length
   const running = steps.filter((st) => st.state === 'running')
-  const summary = [steps.length ? plural(steps.length, 'step') : '', notes ? plural(notes, 'note') : '', thoughts && !steps.length && !notes ? 'thinking' : '']
+  const summary = [steps.length ? plural(steps.length, 'step') : '', thoughts && !steps.length ? 'thinking' : '']
     .filter(Boolean)
     .join(' · ')
   return (
@@ -1055,12 +1053,8 @@ function WorkBlock({ parts, expanded }: { parts: TurnPart[]; expanded: boolean }
                   <StepRow key={j} step={st} />
                 ))}
               </div>
-            ) : p.kind === 'thinking' ? (
-              <ThinkingPart key={i} text={p.text} />
             ) : (
-              <div key={i} style={{ padding: '2px 0' }}>
-                <Markdown source={p.text} size={12.5} muted />
-              </div>
+              <ThinkingPart key={i} text={p.text} />
             )
           )}
         </div>
@@ -1071,15 +1065,28 @@ function WorkBlock({ parts, expanded }: { parts: TurnPart[]; expanded: boolean }
   )
 }
 
+type PartGroup = { kind: 'text'; text: string } | { kind: 'work'; parts: TurnPart[] }
+
+export function groupParts(parts: TurnPart[]): PartGroup[] {
+  const groups: PartGroup[] = []
+  for (const p of parts) {
+    if (p.kind === 'text') {
+      groups.push({ kind: 'text', text: p.text })
+      continue
+    }
+    const last = groups[groups.length - 1]
+    if (last?.kind === 'work') last.parts.push(p)
+    else groups.push({ kind: 'work', parts: [p] })
+  }
+  return groups
+}
+
 function OrderedParts({ parts }: { parts: TurnPart[] }) {
-  const lastText = parts.map((p) => p.kind).lastIndexOf('text')
-  const final = lastText >= 0 && parts.slice(lastText + 1).every((p) => p.kind === 'thinking') ? lastText : -1
-  const answer = final >= 0 ? parts[final] : undefined
-  const work = parts.filter((_, i) => i !== final)
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      {work.length > 0 && <WorkBlock parts={work} expanded={!answer} />}
-      {answer?.kind === 'text' && <Markdown source={answer.text} size={13.5} />}
+      {groupParts(parts).map((g, i) =>
+        g.kind === 'text' ? <Markdown key={i} source={g.text} size={13.5} /> : <WorkBlock key={i} parts={g.parts} />
+      )}
     </div>
   )
 }

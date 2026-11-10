@@ -44,3 +44,18 @@ test('a background shell that redirects its output names the file it writes to',
   expect(redirectTarget('npm run dev >/dev/null 2>&1')).toBe('/dev/null')
   expect(redirectTarget('npm run dev')).toBe('')
 })
+
+test('every Claude message stays in the conversation and only tools and thinking go into work blocks', async () => {
+  const { groupParts } = await import('./SessionDetailPage')
+  const step = { kind: 'command', label: 'Ran', target: 'ls', state: 'done' } as never
+  const groups = groupParts([
+    { kind: 'thinking', text: 'plan' },
+    { kind: 'steps', steps: [step] },
+    { kind: 'text', text: 'First reply' },
+    { kind: 'steps', steps: [step, step] },
+    { kind: 'text', text: 'Second reply' },
+    { kind: 'text', text: 'Third reply' },
+    { kind: 'steps', steps: [step] }
+  ])
+  expect(groups.map((g) => (g.kind === 'text' ? g.text : `work:${g.parts.length}`))).toEqual(['work:2', 'First reply', 'work:1', 'Second reply', 'Third reply', 'work:1'])
+})
