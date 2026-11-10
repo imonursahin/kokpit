@@ -30,7 +30,7 @@ import { relativeTime } from '../shared/time'
 import { buildDetail, buildSubagentDetail, readTaskOutput, readWorkflowRun } from './sessions/detail'
 import { revertFile } from './sessions/revert'
 import { KokpitSessions } from './sessions/origin'
-import { readCliStatuses } from './sessions/live'
+import { liveListStatus, readCliStatuses } from './sessions/live'
 import { listFiles, rankFiles } from './files'
 import { appendMemory, runShell } from './shell'
 import { PROJECTS_DIR, SessionStore } from './sessions/store'
@@ -138,7 +138,7 @@ export function registerIpc(
       const l = live.get(i.id)
       if (!l) return (i.status === 'running' || i.status === 'waiting') && !alive.has(i.id) ? { ...i, status: 'done' } : i
       const bg = l.background?.[0]
-      const status = l.state === 'waiting' ? 'waiting' : l.state === 'error' ? 'error' : l.state === 'idle' && !bg ? 'done' : 'running'
+      const status = liveListStatus(l.state, l.background)
       const ask = l.pending[0]
       const sub = ask ? `${ask.title}: ${ask.detail}` : l.state === 'idle' && bg ? `In background: ${bg.kind} · ${bg.description}` : i.sub
       return { ...i, status, sub: sub.slice(0, 200), askId: ask?.requestId }

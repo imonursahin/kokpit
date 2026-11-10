@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { CliStatus } from '../../shared/sessionIndex'
+import { claudeStillWorking, type BackgroundTask, type LiveState } from '../../shared/runner'
 
 const LIVE_DIR = join(homedir(), '.claude', 'sessions')
 
@@ -35,4 +36,11 @@ export function readCliStatuses(dir = LIVE_DIR, alive = processAlive): Map<strin
     }
   }
   return out
+}
+
+export function liveListStatus(state: LiveState, background: BackgroundTask[] = []): 'waiting' | 'error' | 'done' | 'running' {
+  if (state === 'waiting') return 'waiting'
+  if (state === 'error') return 'error'
+  if (state !== 'idle') return 'running'
+  return claudeStillWorking(background) ? 'running' : 'done'
 }

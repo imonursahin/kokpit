@@ -26,3 +26,16 @@ test('a busy session stays running while Claude thinks without writing', () => {
   expect(deriveStatus({ ...base, lastAtMs: now - 10_000, cli: 'idle' }, now)).toBe('done')
   expect(deriveStatus({ ...base, pendingTool: 'Edit a.ts', lastAtMs: now - 60_000, cli: 'busy' }, now)).toBe('waiting')
 })
+
+test('a live session that only has a background shell left is done, not running', async () => {
+  const { liveListStatus } = await import('./live')
+  const bg = (kind: string) => ({ id: kind, kind, description: '', startedAt: '' })
+  expect(liveListStatus('idle', [bg('Shell')])).toBe('done')
+  expect(liveListStatus('idle', [bg('Monitor')])).toBe('done')
+  expect(liveListStatus('idle', [bg('Shell'), bg('Workflow')])).toBe('running')
+  expect(liveListStatus('idle', [bg('Subagent')])).toBe('running')
+  expect(liveListStatus('idle')).toBe('done')
+  expect(liveListStatus('running', [bg('Shell')])).toBe('running')
+  expect(liveListStatus('waiting')).toBe('waiting')
+  expect(liveListStatus('error', [bg('Workflow')])).toBe('error')
+})

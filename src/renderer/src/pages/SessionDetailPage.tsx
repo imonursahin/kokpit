@@ -1,5 +1,5 @@
 import { createContext, Fragment, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { MODE_LABELS, MODES, type Activity, type AskDecision, type BackgroundTask, type ImageInput, type LiveSession, type LiveState, type RewindResult, type RunnerMode } from '@shared/runner'
+import { MODE_LABELS, MODES, claudeStillWorking, type Activity, type AskDecision, type BackgroundTask, type ImageInput, type LiveSession, type LiveState, type RewindResult, type RunnerMode } from '@shared/runner'
 import type { SessionDetailData, SubagentDetail, WorkflowRun, WorkflowStep } from '@shared/sessionDetail'
 import type { SessionStatus } from '@shared/types'
 import { relativeTime } from '@shared/time'
@@ -743,7 +743,18 @@ function SubagentModal({ sessionId, agentId, onClose }: { sessionId: string; age
   )
 }
 
-function ShellOutputModal({ sessionId, taskId, onClose }: { sessionId: string; taskId: string; onClose: () => void }) {
+export function redirectTarget(command: string): string {
+  const m = /(?:^|\s)(?:&>>?|1?>>?)\s*([^\s;&|<>()]+)/.exec(command)
+  return m?.[1] ?? ''
+}
+
+function emptyShellNote(command: string): string {
+  const target = redirectTarget(command)
+  if (target === '/dev/null') return 'No output. The command throws its output away.'
+  return target ? `No output here. The command writes its output to ${target}` : 'No output yet.'
+}
+
+function ShellOutputModal({ sessionId, taskId, command, onClose }: { sessionId: string; taskId: string; command: string; onClose: () => void }) {
   const [out, setOut] = useState<{ text: string; truncated: boolean; missing: boolean } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const bodyRef = useRef<HTMLPreElement>(null)
@@ -810,7 +821,7 @@ function ShellOutputModal({ sessionId, taskId, onClose }: { sessionId: string; t
           }}
           style={{ flex: 1, minHeight: 0, margin: 0, overflow: 'auto', padding: '16px 20px', font: `12px/1.55 ${MONO}`, color: 'var(--tx)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}
         >
-          {error ? error : !out ? 'Loading…' : out.missing ? 'No output file yet.' : out.text || 'No output yet.'}
+          {error ? error : !out ? 'Loading…' : out.missing ? 'No output file yet.' : out.text || emptyShellNote(command)}
         </pre>
       </div>
     </div>
@@ -2813,6 +2824,9 @@ export function SessionDetailPage({ mode, onBack }: { mode: DetailMode; onBack: 
   return <Detail key={mode} data={data} onBack={onBack} />
 }
 
+const shellCommand = (data: SessionDetailData, taskId: string) =>
+  data.turns.flatMap((t) => (t.kind === 'claude' ? t.steps : [])).find((st) => st.taskId === taskId)?.target ?? ''
+
 export function RealSessionDetailPage({
   data,
   onBack,
@@ -2829,7 +2843,7 @@ export function RealSessionDetailPage({
     const s = live.state
     return {
       ...base,
-      header: { ...base.header, status: s === 'idle' && live.background?.length ? 'running' : LIVE_STATUS[s] },
+      header: { ...base.header, status: s === 'idle' && claudeStillWorking(live.background) ? 'running' : LIVE_STATUS[s] },
       placeholder: s === 'running' || s === 'starting' || s === 'waiting' ? WORKING : 'Message Claude…',
       running: s === 'running' || s === 'waiting'
     }
@@ -2851,7 +2865,7 @@ export function RealSessionDetailPage({
         {...rest}
       />
       {agentId?.startsWith('shell:') ? (
-        <ShellOutputModal sessionId={data.id} taskId={agentId.slice(6)} onClose={closeAgent} />
+        <ShellOutputModal sessionId={data.id} taskId={agentId.slice(6)} command={shellCommand(data, agentId.slice(6))} onClose={closeAgent} />
       ) : agentId?.startsWith('workflow:') ? (
         <WorkflowModal sessionId={data.id} runId={agentId.slice(9)} onOpenStep={setAgentId} onClose={closeAgent} />
       ) : agentId ? (
