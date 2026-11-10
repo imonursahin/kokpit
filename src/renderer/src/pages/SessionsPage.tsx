@@ -140,6 +140,7 @@ export function SessionsPage({
 }) {
   const [tab, setTab] = useState<Tab>('all')
   const [jira, setJira] = useState('')
+  const [tag, setTag] = useState('')
   const [query, setQuery] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const filterRef = useRef<HTMLInputElement>(null)
@@ -161,18 +162,21 @@ export function SessionsPage({
   }, [scoped])
 
   const jiraKeys = useMemo(() => [...new Set(scoped.map((s) => s.jira).filter(Boolean))].sort(), [scoped])
+  const tagNames = useMemo(() => [...new Set(sessions.flatMap((s) => (s.tag ? [s.tag.name] : [])))].sort((a, b) => a.localeCompare(b)), [sessions])
+  const activeTag = tagNames.includes(tag) ? tag : ''
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase()
-    return (q ? sessions : scoped)
+    return (q || activeTag ? sessions : scoped)
       .filter(
         (s) =>
           (tab === 'all' || s.status === tab) &&
           (!jira || s.jira === jira) &&
+          (!activeTag || s.tag?.name === activeTag) &&
           (!q || s.title.toLowerCase().includes(q))
       )
       .sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned) || (a.pinned && b.pinned ? pinOrder.indexOf(a.id) - pinOrder.indexOf(b.id) : 0))
-  }, [sessions, scoped, tab, jira, query, pinOrder])
+  }, [sessions, scoped, tab, jira, activeTag, query, pinOrder])
   const [drag, setDrag] = useState<{ id: string; over?: string } | null>(null)
   const [undo, setUndo] = useState<{ id: string; title: string } | null>(null)
   useEffect(() => {
@@ -344,6 +348,9 @@ export function SessionsPage({
           onChange={setJira}
           options={[{ value: '', label: 'Any' }, ...jiraKeys.map((k) => ({ value: k, label: k }))]}
         />
+        {tagNames.length > 0 && (
+          <SelectChip label="Tag" value={activeTag} onChange={setTag} options={[{ value: '', label: 'Any' }, ...tagNames.map((n) => ({ value: n, label: n }))]} />
+        )}
         <span style={{ flex: 1 }} />
         <label
           style={{

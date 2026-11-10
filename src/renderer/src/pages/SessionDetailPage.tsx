@@ -10,6 +10,7 @@ import { Icon, KeyHint, Spinner } from '@/components/primitives'
 import { Status } from '@/components/Status'
 import { Markdown } from '@/components/Markdown'
 import { JiraChip, openJiraIssue, PrChip } from '@/components/LinkChips'
+import { redirectTarget } from '@shared/shellRedirect'
 import { TagPicker } from '@/components/TagChip'
 import { getDraft, getQueued, setDraft, setQueued, type QueuedMessage } from '@/data/drafts'
 import type { SessionTag } from '@shared/settings'
@@ -747,11 +748,6 @@ function SubagentModal({ sessionId, agentId, onClose }: { sessionId: string; age
   )
 }
 
-export function redirectTarget(command: string): string {
-  const m = /(?:^|\s)(?:&>>?|1?>>?)\s*([^\s;&|<>()]+)/.exec(command)
-  return m?.[1] ?? ''
-}
-
 function emptyShellNote(command: string): string {
   const target = redirectTarget(command)
   if (target === '/dev/null') return 'No output. The command throws its output away.'
@@ -759,7 +755,7 @@ function emptyShellNote(command: string): string {
 }
 
 function ShellOutputModal({ sessionId, taskId, command, onClose }: { sessionId: string; taskId: string; command: string; onClose: () => void }) {
-  const [out, setOut] = useState<{ text: string; truncated: boolean; missing: boolean } | null>(null)
+  const [out, setOut] = useState<{ text: string; truncated: boolean; missing: boolean; source?: string } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const bodyRef = useRef<HTMLPreElement>(null)
   const pinned = useRef(true)
@@ -810,7 +806,7 @@ function ShellOutputModal({ sessionId, taskId, command, onClose }: { sessionId: 
           <Icon name="terminal" size={20} color="var(--tx2)" />
           <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
             <span style={{ fontSize: 14, fontWeight: 600 }}>Background shell</span>
-            <span style={{ fontSize: 12, color: 'var(--tx3)', fontFamily: MONO }}>{taskId}{out?.truncated ? ' · showing the end' : ''}</span>
+            <span style={{ fontSize: 12, color: 'var(--tx3)', fontFamily: MONO }}>{out?.source ? `${taskId} · from ${out.source}` : taskId}{out?.truncated ? ' · showing the end' : ''}</span>
           </div>
           <button onClick={onClose} aria-label="Close" style={{ display: 'flex', padding: 4, borderRadius: 6, cursor: 'pointer' }}>
             <Icon name="close" size={18} color="var(--tx2)" />

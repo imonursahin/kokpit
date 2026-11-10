@@ -350,3 +350,25 @@ test('tool steps show diffs, rejections, plans, MCP arguments, API errors and ho
     { kind: 'note', text: 'UserPromptSubmit operation blocked by hook', tone: 'error' }
   ])
 })
+
+test('a background shell that writes to its own log shows that log', async () => {
+  const { mkdtempSync, writeFileSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const { backgroundCommand, redirectFile } = await import('./detail')
+  const dir = mkdtempSync(join(tmpdir(), 'kokpit-detail-'))
+  const file = join(dir, 's.jsonl')
+  writeFileSync(
+    file,
+    [
+      JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'cd /tmp/demo && vite > vite.log 2>&1', run_in_background: true } }] } }),
+      JSON.stringify({ type: 'user', toolUseResult: { backgroundTaskId: 'bg1' }, message: { content: [{ type: 'tool_result', tool_use_id: 't1', content: 'running' }] } })
+    ].join('\n')
+  )
+  const command = await backgroundCommand(file, 'bg1')
+  expect(command).toBe('cd /tmp/demo && vite > vite.log 2>&1')
+  expect(redirectFile(command, '/repo')).toBe('/tmp/demo/vite.log')
+  expect(redirectFile('npm run dev > out.log', '/repo')).toBe('/repo/out.log')
+  expect(redirectFile('npm run dev >/dev/null 2>&1', '/repo')).toBe('')
+  expect(await backgroundCommand(file, 'nope')).toBe('')
+})

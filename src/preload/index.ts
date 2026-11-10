@@ -57,7 +57,7 @@ const api = {
   sessionDetail: (id: string, maxTurns?: number): Promise<SessionDetailData> => ipcRenderer.invoke('sessions:detail', id, maxTurns),
   subagentDetail: (id: string, agentId: string): Promise<SubagentDetail> => ipcRenderer.invoke('sessions:subagent', id, agentId),
   workflowRun: (id: string, runId: string): Promise<WorkflowRun> => ipcRenderer.invoke('sessions:workflow', id, runId),
-  taskOutput: (id: string, taskId: string): Promise<{ text: string; truncated: boolean; missing: boolean }> => ipcRenderer.invoke('sessions:taskOutput', id, taskId),
+  taskOutput: (id: string, taskId: string): Promise<{ text: string; truncated: boolean; missing: boolean; source?: string }> => ipcRenderer.invoke('sessions:taskOutput', id, taskId),
   renameSession: (sessionId: string, title: string): Promise<void> => ipcRenderer.invoke('sessions:rename', sessionId, title),
   deleteSession: (sessionId: string): Promise<void> => ipcRenderer.invoke('sessions:delete', sessionId),
   terminal: {

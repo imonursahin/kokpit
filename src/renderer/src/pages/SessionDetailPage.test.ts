@@ -36,7 +36,7 @@ test('only a prompt with nothing but hooks after it counts as unanswered', async
 })
 
 test('a background shell that redirects its output names the file it writes to', async () => {
-  const { redirectTarget } = await import('./SessionDetailPage')
+  const { redirectTarget } = await import('@shared/shellRedirect')
   expect(redirectTarget('cd /tmp/d && vite --port 5199 > /tmp/d/vite.log 2>&1')).toBe('/tmp/d/vite.log')
   expect(redirectTarget('npm run dev >> out.log')).toBe('out.log')
   expect(redirectTarget('npm run dev &> all.log')).toBe('all.log')

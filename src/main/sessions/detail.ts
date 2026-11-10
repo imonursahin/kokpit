@@ -1,13 +1,14 @@
 import { execFile } from 'node:child_process'
 import { createReadStream } from 'node:fs'
 import { open, readdir, readFile, stat } from 'node:fs/promises'
-import { basename, dirname, join } from 'node:path'
+import { basename, dirname, isAbsolute, join } from 'node:path'
 import { createInterface } from 'node:readline'
 import { promisify } from 'node:util'
 import type { SessionIndexItem } from '../../shared/sessionIndex'
 import type { DetailFile, DetailStep, DetailStepKind, DetailTurn, SessionDetailData, SubagentDetail, WorkflowRun, WorkflowStep } from '../../shared/sessionDetail'
 import { editAsDiff, isTestPath, lineCount, parseUnifiedDiff } from './diff'
 import { contextTokens, contextWindow, costOf, type Usage } from './pricing'
+import { commandDir, redirectTarget } from '../../shared/shellRedirect'
 import { gitRoot } from './repo'
 
 const run = promisify(execFile)
@@ -725,21 +726,71 @@ async function firstTimestamp(file: string): Promise<string | undefined> {
 const TASK_ID = /^[A-Za-z0-9_-]{1,64}$/
 const MAX_TASK_OUTPUT = 40_000
 
-export async function readTaskOutput(item: SessionIndexItem, taskId: string): Promise<{ text: string; truncated: boolean; missing: boolean }> {
-  if (!TASK_ID.test(taskId)) throw new Error('invalid task id')
-  const uid = typeof process.getuid === 'function' ? process.getuid() : 0
-  const file = join('/tmp', `claude-${uid}`, basename(dirname(item.file)), item.id, 'tasks', `${taskId}.output`)
+const taskCommands = new Map<string, string>()
+
+export async function backgroundCommand(file: string, taskId: string): Promise<string> {
+  const key = `${file}:${taskId}`
+  const hit = taskCommands.get(key)
+  if (hit !== undefined) return hit
+  const commands = new Map<string, string>()
+  let found = ''
+  const rl = createInterface({ input: createReadStream(file, { encoding: 'utf8' }), crlfDelay: Infinity })
+  for await (const raw of rl) {
+    const bash = raw.includes('"Bash"')
+    const result = raw.includes(taskId)
+    if (!bash && !result) continue
+    let o: unknown
+    try {
+      o = JSON.parse(raw)
+    } catch {
+      continue
+    }
+    if (!isObj(o)) continue
+    const content = isObj(o['message']) ? o['message']['content'] : undefined
+    for (const b of (Array.isArray(content) ? content : []).filter(isObj)) {
+      if (b['type'] === 'tool_use' && b['name'] === 'Bash' && isObj(b['input'])) commands.set(str(b['id']), str(b['input']['command']))
+      if (b['type'] === 'tool_result' && isObj(o['toolUseResult']) && str(o['toolUseResult']['backgroundTaskId']) === taskId) found = commands.get(str(b['tool_use_id'])) ?? ''
+    }
+    if (found) break
+  }
+  rl.close()
+  taskCommands.set(key, found)
+  return found
+}
+
+export function redirectFile(command: string, cwd: string): string {
+  const target = redirectTarget(command)
+  if (!target || target.startsWith('/dev/')) return ''
+  const path = isAbsolute(target) ? target : join(commandDir(command) || cwd, target)
+  return isAbsolute(path) ? path : ''
+}
+
+async function tail(file: string): Promise<{ text: string; truncated: boolean } | null> {
   const fh = await open(file, 'r').catch(() => null)
-  if (!fh) return { text: '', truncated: false, missing: true }
+  if (!fh) return null
   try {
-    const { size } = await fh.stat()
-    const start = Math.max(0, size - MAX_TASK_OUTPUT)
-    const buf = Buffer.alloc(size - start)
+    const st = await fh.stat()
+    if (!st.isFile()) return null
+    const start = Math.max(0, st.size - MAX_TASK_OUTPUT)
+    const buf = Buffer.alloc(st.size - start)
     await fh.read(buf, 0, buf.length, start)
-    return { text: buf.toString('utf8').replace(/\x1b\[[0-9;]*m/g, ''), truncated: start > 0, missing: false }
+    return { text: buf.toString('utf8').replace(/\x1b\[[0-9;]*m/g, ''), truncated: start > 0 }
   } finally {
     await fh.close()
   }
+}
+
+export async function readTaskOutput(item: SessionIndexItem, taskId: string): Promise<{ text: string; truncated: boolean; missing: boolean; source?: string }> {
+  if (!TASK_ID.test(taskId)) throw new Error('invalid task id')
+  const uid = typeof process.getuid === 'function' ? process.getuid() : 0
+  const file = join('/tmp', `claude-${uid}`, basename(dirname(item.file)), item.id, 'tasks', `${taskId}.output`)
+  const own = await tail(file)
+  if (own?.text) return { ...own, missing: false }
+  const command = await backgroundCommand(item.file, taskId).catch(() => '')
+  const target = command ? redirectFile(command, item.cwd) : ''
+  const redirected = target ? await tail(target) : null
+  if (redirected) return { ...redirected, missing: false, source: target }
+  return { text: '', truncated: false, missing: !own }
 }
 
 export async function readWorkflowRun(item: SessionIndexItem, runId: string): Promise<WorkflowRun> {
