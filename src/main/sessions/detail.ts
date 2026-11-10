@@ -345,6 +345,16 @@ export async function buildDetail(item: SessionIndexItem, nowMs = Date.now(), op
     turnCost = 0
   }
 
+  const retractUnanswered = () => {
+    const last = turns[turns.length - 1]
+    const onlyHooks =
+      last?.kind === 'claude' && !last.text && !last.output && !last.parts?.some((p) => p.kind !== 'steps') && last.steps.every((s) => s.label.startsWith('Hook · '))
+    const at = onlyHooks ? turns.length - 2 : turns.length - 1
+    if (turns[at]?.kind !== 'user') return
+    turns.splice(at)
+    current = null
+  }
+
   let lastUserAt = ''
   const reports = new Map<string, string>()
   const background = new Set<string>()
@@ -411,6 +421,10 @@ export async function buildDetail(item: SessionIndexItem, nowMs = Date.now(), op
       const finished = taskNotification(prompt)
       if (finished) {
         finishBackground(finished)
+        continue
+      }
+      if (o['toolUseResult'] === undefined && prompt.trimStart().startsWith('[Request interrupted')) {
+        retractUnanswered()
         continue
       }
       const command = commandPrompt(prompt)

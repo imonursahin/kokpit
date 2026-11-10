@@ -267,3 +267,32 @@ test('a background workflow shows as running until its completion notice, which 
   lines.push({ type: 'user', timestamp: '2026-01-01T10:05:00Z', message: { content: '<task-notification>\n<task-id>w1</task-id>\n<tool-use-id>wf1</tool-use-id>\n<status>completed</status>\n</task-notification>' } })
   expect(await stepOf()).toMatchObject({ state: 'done', meta: 'finished in background' })
 })
+
+test('a prompt stopped before Claude answered drops out of the conversation, an answered one stays', async () => {
+  const { mkdtempSync, writeFileSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const { buildDetail } = await import('./detail')
+  const dir = mkdtempSync(join(tmpdir(), 'kokpit-detail-'))
+  const file = join(dir, 's.jsonl')
+  const u = (content: unknown, ts: string, uuid: string) => JSON.stringify({ type: 'user', uuid, timestamp: ts, message: { content } })
+  const a = (content: unknown[], ts: string) => JSON.stringify({ type: 'assistant', timestamp: ts, message: { id: ts, model: 'claude-opus-5-5', content } })
+  const hook = (ts: string) => JSON.stringify({ type: 'attachment', timestamp: ts, attachment: { type: 'hook_system_message', hookEvent: 'UserPromptSubmit', hookName: 'guard', content: 'read the skills' } })
+  writeFileSync(
+    file,
+    [
+      u('first', '2026-01-01T10:00:00Z', 'u1'),
+      a([{ type: 'text', text: 'Answer one.' }], '2026-01-01T10:00:01Z'),
+      u('typo promt', '2026-01-01T10:01:00Z', 'u2'),
+      hook('2026-01-01T10:01:00Z'),
+      u([{ type: 'text', text: '[Request interrupted by user]' }], '2026-01-01T10:01:02Z', 'u3'),
+      u('typo prompt', '2026-01-01T10:01:10Z', 'u4'),
+      a([{ type: 'text', text: 'Partial answer' }], '2026-01-01T10:01:11Z'),
+      u([{ type: 'text', text: '[Request interrupted by user]' }], '2026-01-01T10:01:12Z', 'u5')
+    ].join('\n')
+  )
+  const item = { id: 's', file, title: 't', cwd: dir, repo: 'r', branch: 'main', jira: '', prNumber: null, prUrl: '', startedAt: '2026-01-01T10:00:00Z', lastAt: '2026-01-01T10:01:12Z', costUsd: 0, costComplete: true, model: '', mode: '', status: 'done', sub: '', headless: false } as const
+  const detail = await buildDetail({ ...item })
+  expect(detail.turns.flatMap((t) => (t.kind === 'user' ? [t.text] : []))).toEqual(['first', 'typo prompt'])
+  expect(detail.turns.map((t) => t.kind)).toEqual(['user', 'claude', 'user', 'claude'])
+})

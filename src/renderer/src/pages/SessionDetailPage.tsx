@@ -960,6 +960,21 @@ export function turnKeys(turns: Turn[]): [Turn, string][] {
   })
 }
 
+export function unansweredPrompt(turns: Turn[]): number {
+  const last = turns[turns.length - 1]
+  const onlyHooks =
+    last?.kind === 'claude' &&
+    !last.markdown &&
+    !last.output &&
+    !last.text &&
+    !last.parts?.some((p) => p.kind !== 'steps') &&
+    last.steps.every((s) => s.label.startsWith('Hook · '))
+  const at = onlyHooks ? turns.length - 2 : turns.length - 1
+  return turns[at]?.kind === 'user' ? at : -1
+}
+
+export const stripImageMarkers = (text: string) => text.replace(/^(\[Image #\d+\]\s*)+/, '')
+
 function lastClaudeText(turns: Turn[]): string {
   const last = [...turns].reverse().find((t) => t.kind === 'claude')
   if (!last || last.kind !== 'claude') return ''
@@ -1969,8 +1984,40 @@ function Detail({
       const on = !fs.filter((f) => f.test).every((f) => f.included)
       return fs.map((f) => (f.test ? { ...f, included: on } : f))
     })
+  const sentDrafts = useRef(new Map<number, { typed: string; kept: ReturnType<typeof pasted.snapshot>; queued: boolean }>())
+  const [retracted, setRetracted] = useState<string | null>(null)
+  const shownTurns = useMemo(() => {
+    if (retracted === null) return data.turns
+    const at = unansweredPrompt(data.turns)
+    const t = data.turns[at]
+    return t?.kind === 'user' && (t.uuid ?? '') === retracted ? data.turns.slice(0, at) : data.turns
+  }, [data.turns, retracted])
+  const takeBackUnanswered = () => {
+    if (!running || partial) return
+    const putBack = (typed: string, kept?: ReturnType<typeof pasted.snapshot>) => {
+      setText((cur) => (cur.trim() ? `${typed}\n${cur}` : typed))
+      if (kept?.length && !pasted.count) pasted.restore(kept)
+    }
+    if (outbox.length) {
+      const m = outbox[0]
+      if (outbox.length > 1 || !m) return
+      const sent = sentDrafts.current.get(m.id)
+      if (sent?.queued) return
+      setOutbox([])
+      putBack(sent?.typed ?? stripImageMarkers(m.text), sent?.kept)
+      return
+    }
+    const at = unansweredPrompt(data.turns)
+    const t = data.turns[at]
+    if (t?.kind !== 'user') return
+    setRetracted(t.uuid ?? '')
+    putBack(stripImageMarkers(richToText(t.text)))
+  }
   const stop = () => {
-    if (onStop) return onStop()
+    if (onStop) {
+      takeBackUnanswered()
+      return onStop()
+    }
     console.log('stop')
     setRunning(false)
   }
@@ -2085,6 +2132,7 @@ function Detail({
     const modelId = modelOptions?.find((m) => m.label === model)?.id
     const id = Date.now()
     const kept = pasted.snapshot()
+    sentDrafts.current.set(id, { typed, kept, queued: running })
     if (!rewindTo) setOutbox((o) => [...o, { id, text: t, before: countSent(t) + o.filter((m) => sameMessage(m.text, t)).length }])
     setText('')
     pasted.clear()
@@ -2352,7 +2400,7 @@ function Detail({
           <div ref={scrollRef} style={{ flex: 1, minHeight: 0, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
             <div style={{ marginTop: 'auto', padding: '20px 32px 12px', display: 'flex', flexDirection: 'column', gap: 20 }}>
               <RewindOpen.Provider value={onSend && sessionCwd && !running ? startRewind : null}>
-                {turnKeys(data.turns).map(([t, key]) => (
+                {turnKeys(shownTurns).map(([t, key]) => (
                   <TurnView key={key} turn={t} onLoadEarlier={onLoadEarlier} />
                 ))}
               </RewindOpen.Provider>
