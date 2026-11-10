@@ -59,3 +59,19 @@ test('every Claude message stays in the conversation and only tools and thinking
   ])
   expect(groups.map((g) => (g.kind === 'text' ? g.text : `work:${g.parts.length}`))).toEqual(['work:2', 'First reply', 'work:1', 'Second reply', 'Third reply', 'work:1'])
 })
+
+test('edit approvals show the change, other approvals show the command', async () => {
+  const { approvalRequest } = await import('./SessionDetailPage')
+  const base = { requestId: 'r', sessionId: 's', title: 'Wants to edit a file', detail: '/repo/a.ts', canAlwaysAllow: true, createdAt: new Date().toISOString() }
+  const edit = approvalRequest({ ...base, toolName: 'Edit', input: { file_path: '/repo/a.ts', old_string: 'a\nb', new_string: 'c' } }, '/repo')
+  expect(edit).toMatchObject({ type: 'edit', file: 'a.ts', add: 1, del: 2, preview: '- a\n- b\n+ c' })
+  const write = approvalRequest({ ...base, toolName: 'Write', input: { file_path: '/repo/n.ts', content: 'x' } }, '/repo')
+  expect(write).toMatchObject({ type: 'edit', add: 1, del: 0, preview: '+ x' })
+  expect(approvalRequest({ ...base, toolName: 'Bash', detail: 'npm test', input: { command: 'npm test' } }, '/repo')).toMatchObject({ type: 'command', command: 'npm test' })
+})
+
+test('the working row says when Claude is retrying the API or compacting', async () => {
+  const { activityLabel } = await import('./SessionDetailPage')
+  expect(activityLabel({ kind: 'retry', detail: 'API error 529 · attempt 2/10 in 4s' })).toEqual({ label: 'Retrying…', detail: 'API error 529 · attempt 2/10 in 4s' })
+  expect(activityLabel({ kind: 'compacting' })).toEqual({ label: 'Compacting conversation…' })
+})

@@ -121,7 +121,13 @@ export function StepRow({ step }: { step: Step }) {
             whiteSpace: 'pre-wrap'
           }}
         >
-          {step.output}
+          {step.kind === 'edit' || step.kind === 'create'
+            ? step.output.split('\n').map((l, i) => (
+                <div key={i} style={{ color: l.startsWith('+ ') ? 'var(--ok)' : l.startsWith('- ') ? 'var(--err)' : undefined }}>
+                  {l || ' '}
+                </div>
+              ))
+            : step.output}
         </pre>
       )}
     </div>

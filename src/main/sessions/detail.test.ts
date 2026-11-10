@@ -294,5 +294,59 @@ test('a prompt stopped before Claude answered drops out of the conversation, an 
   const item = { id: 's', file, title: 't', cwd: dir, repo: 'r', branch: 'main', jira: '', prNumber: null, prUrl: '', startedAt: '2026-01-01T10:00:00Z', lastAt: '2026-01-01T10:01:12Z', costUsd: 0, costComplete: true, model: '', mode: '', status: 'done', sub: '', headless: false } as const
   const detail = await buildDetail({ ...item })
   expect(detail.turns.flatMap((t) => (t.kind === 'user' ? [t.text] : []))).toEqual(['first', 'typo prompt'])
-  expect(detail.turns.map((t) => t.kind)).toEqual(['user', 'claude', 'user', 'claude'])
+  expect(detail.turns.map((t) => t.kind)).toEqual(['user', 'claude', 'user', 'claude', 'note'])
+  expect(detail.turns.at(-1)).toEqual({ kind: 'note', text: 'Interrupted', tone: 'info' })
+})
+
+test('long tool output keeps its head and tail and says how much was hidden', async () => {
+  const { clipOutput } = await import('./detail')
+  const text = Array.from({ length: 2000 }, (_, i) => `line ${i}`).join('\n')
+  const out = clipOutput(text, 400)
+  expect(out.startsWith('line 0\n')).toBe(true)
+  expect(out.endsWith('line 1999')).toBe(true)
+  expect(out).toMatch(/… \d+ lines hidden …/)
+  expect(clipOutput('short', 400)).toBe('short')
+})
+
+test('tool steps show diffs, rejections, plans, MCP arguments, API errors and hook warnings', async () => {
+  const { mkdtempSync, writeFileSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const { buildDetail } = await import('./detail')
+  const dir = mkdtempSync(join(tmpdir(), 'kokpit-detail-'))
+  const file = join(dir, 's.jsonl')
+  const a = (content: unknown[], ts: string, extra: Record<string, unknown> = {}) => JSON.stringify({ type: 'assistant', timestamp: ts, ...extra, message: { id: ts, model: 'claude-opus-5-5', content } })
+  const r = (id: string, content: string, isError = false) => JSON.stringify({ type: 'user', timestamp: '2026-01-01T10:00:09Z', message: { content: [{ type: 'tool_result', tool_use_id: id, content, is_error: isError }] }, toolUseResult: {} })
+  writeFileSync(
+    file,
+    [
+      JSON.stringify({ type: 'user', timestamp: '2026-01-01T10:00:00Z', message: { content: 'go' } }),
+      a([{ type: 'tool_use', id: 'e1', name: 'Edit', input: { file_path: `${dir}/a.ts`, old_string: 'old', new_string: 'new' } }], '2026-01-01T10:00:01Z'),
+      r('e1', 'The file has been updated.'),
+      a([{ type: 'tool_use', id: 'b1', name: 'Bash', input: { command: 'rm -rf build' } }], '2026-01-01T10:00:02Z'),
+      r('b1', "The user doesn't want to proceed with this tool use. The tool use was rejected.", true),
+      a([{ type: 'tool_use', id: 'p1', name: 'ExitPlanMode', input: { plan: '# Ship it\n\n1. Do the thing' } }], '2026-01-01T10:00:03Z'),
+      r('p1', 'User has approved your plan.'),
+      a([{ type: 'tool_use', id: 'm1', name: 'mcp__zoe__jira', input: { action: 'call', tool: 'getJiraIssue' } }], '2026-01-01T10:00:04Z'),
+      r('m1', '{"key":"PA-1"}'),
+      a([{ type: 'tool_use', id: 'g1', name: 'Grep', input: { pattern: 'nope' } }], '2026-01-01T10:00:05Z'),
+      r('g1', 'No files found'),
+      a([{ type: 'text', text: 'API Error: Overloaded' }], '2026-01-01T10:00:06Z', { isApiErrorMessage: true }),
+      JSON.stringify({ type: 'system', subtype: 'informational', level: 'warning', timestamp: '2026-01-01T10:00:07Z', content: 'UserPromptSubmit operation blocked by hook' })
+    ].join('\n')
+  )
+  const item = { id: 's', file, title: 't', cwd: dir, repo: 'r', branch: 'main', jira: '', prNumber: null, prUrl: '', startedAt: '2026-01-01T10:00:00Z', lastAt: '2026-01-01T10:00:07Z', costUsd: 0, costComplete: true, model: '', mode: '', status: 'done', sub: '', headless: false } as const
+  const detail = await buildDetail({ ...item })
+  const steps = detail.turns.flatMap((t) => (t.kind === 'claude' ? t.steps : []))
+  expect(steps[0]).toMatchObject({ label: 'Edited', target: 'a.ts', output: '- old\n+ new', state: 'done' })
+  expect(steps[1]).toMatchObject({ label: 'Ran', state: 'done', meta: 'Rejected' })
+  expect(steps[2]).toMatchObject({ label: 'Plan', target: 'Ship it', meta: 'Approved' })
+  expect(steps[2]?.output).toContain('Do the thing')
+  expect(steps[3]).toMatchObject({ label: 'Called', target: 'zoe · jira (action: call, tool: getJiraIssue)', output: '{"key":"PA-1"}' })
+  expect(steps[4]).toMatchObject({ meta: 'no matches' })
+  const notes = detail.turns.filter((t) => t.kind === 'note')
+  expect(notes).toEqual([
+    { kind: 'note', text: 'API Error: Overloaded', tone: 'error' },
+    { kind: 'note', text: 'UserPromptSubmit operation blocked by hook', tone: 'error' }
+  ])
 })

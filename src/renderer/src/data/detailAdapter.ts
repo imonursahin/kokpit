@@ -29,7 +29,7 @@ export function toTurns(turns: DetailTurn[], earlierCount: number): Turn[] {
   const out: Turn[] = earlier > 0 ? [{ kind: 'earlier', text: `${earlier} earlier turn${earlier === 1 ? '' : 's'}`, more: true }] : []
   shown.forEach((t, i) => {
     if (t.kind === 'user') out.push({ kind: 'user', text: toRich(t.text), uuid: t.uuid, parentUuid: t.parentUuid })
-    else if (t.kind === 'note') out.push({ kind: 'earlier', text: t.text })
+    else if (t.kind === 'note') out.push({ kind: 'earlier', text: t.text, tone: t.tone })
     else
       out.push({
         kind: 'claude',

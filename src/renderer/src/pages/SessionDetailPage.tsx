@@ -1,9 +1,9 @@
 import { createContext, Fragment, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { MODE_LABELS, MODES, claudeStillWorking, type Activity, type AskDecision, type BackgroundTask, type ImageInput, type LiveSession, type LiveState, type RewindResult, type RunnerMode } from '@shared/runner'
+import { MODE_LABELS, MODES, claudeStillWorking, type Activity, type AskDecision, type BackgroundTask, type ImageInput, type LiveSession, type LiveState, type PendingAsk, type RewindResult, type RunnerMode } from '@shared/runner'
 import type { SessionDetailData, SubagentDetail, WorkflowRun, WorkflowStep } from '@shared/sessionDetail'
 import type { SessionStatus } from '@shared/types'
 import { relativeTime } from '@shared/time'
-import { ApprovalCard } from '@/components/ApprovalCard'
+import { ApprovalCard, type ApprovalRequest } from '@/components/ApprovalCard'
 import { QuestionCard } from '@/components/QuestionCard'
 import { DiffFileHeader, type DiffFile } from '@/components/DiffFileHeader'
 import { Icon, KeyHint, Spinner } from '@/components/primitives'
@@ -617,6 +617,8 @@ const STEP_VERBS: Partial<Record<Step['kind'], string>> = {
 }
 
 export function activityLabel(activity: Activity | undefined, step?: Step): { label: string; detail?: string } {
+  if (activity?.kind === 'retry') return { label: 'Retrying…', detail: activity.detail }
+  if (activity?.kind === 'compacting') return { label: 'Compacting conversation…' }
   if (activity?.kind === 'writing') return { label: 'Writing…' }
   if (activity?.kind === 'tool' && activity.tool) {
     const mcp = activity.tool.startsWith('mcp__') ? activity.tool.split('__').slice(1).join(' · ') : ''
@@ -1020,6 +1022,34 @@ function ThinkingPart({ text }: { text: string }) {
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 
+const EDIT_TOOLS = new Set(['Edit', 'MultiEdit', 'Write'])
+
+export function approvalRequest(p: PendingAsk, cwd: string): ApprovalRequest {
+  const waited = relativeTime(p.createdAt, Date.now())
+  if (EDIT_TOOLS.has(p.toolName)) {
+    const s = (v: unknown) => (typeof v === 'string' ? v : '')
+    const pairs: [string, string][] =
+      p.toolName === 'Write'
+        ? [['', s(p.input['content'])]]
+        : p.toolName === 'MultiEdit'
+          ? (Array.isArray(p.input['edits']) ? p.input['edits'] : []).map((e: Record<string, unknown>) => [s(e['old_string']), s(e['new_string'])])
+          : [[s(p.input['old_string']), s(p.input['new_string'])]]
+    const lines = (t: string) => (t ? t.split('\n') : [])
+    const preview = pairs.map(([o, n]) => [...lines(o).map((l) => `- ${l}`), ...lines(n).map((l) => `+ ${l}`)].join('\n')).join('\n\n')
+    return {
+      type: 'edit',
+      action: p.title,
+      file: s(p.input['file_path']).replace(`${cwd}/`, ''),
+      add: pairs.reduce((n, [, b]) => n + lines(b).length, 0),
+      del: pairs.reduce((n, [a]) => n + lines(a).length, 0),
+      rule: p.toolName,
+      waited,
+      preview: preview.length > 20_000 ? `${preview.slice(0, 20_000)}\n…` : preview
+    }
+  }
+  return { type: 'command', action: p.title, command: p.detail, cwd, rule: p.toolName, waited }
+}
+
 function WorkBlock({ parts }: { parts: TurnPart[] }) {
   const [open, setOpen] = useState(false)
   const steps = parts.flatMap((p) => (p.kind === 'steps' ? p.steps : []))
@@ -1096,6 +1126,31 @@ const RewindOpen = createContext<((t: RewindTarget) => void) | null>(null)
 
 function TurnView({ turn, onLoadEarlier }: { turn: Turn; onLoadEarlier?: () => void }) {
   const rewind = useContext(RewindOpen)
+  if (turn.kind === 'earlier' && turn.tone)
+    return (
+      <div
+        className="selectable"
+        role={turn.tone === 'error' ? 'alert' : undefined}
+        style={{
+          alignSelf: turn.text.includes('\n') || turn.text.length > 80 ? 'stretch' : 'flex-start',
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: 8,
+          padding: '8px 12px',
+          border: `1px solid ${turn.tone === 'error' ? 'var(--err)' : 'var(--line)'}`,
+          borderRadius: 10,
+          fontSize: 12.5,
+          lineHeight: 1.5,
+          color: turn.tone === 'error' ? 'var(--err)' : 'var(--tx2)',
+          whiteSpace: 'pre-wrap',
+          overflowWrap: 'anywhere',
+          flexShrink: 0
+        }}
+      >
+        <Icon name={turn.tone === 'error' ? 'error' : 'info'} size={16} color={turn.tone === 'error' ? 'var(--err)' : 'var(--tx3)'} />
+        <span>{turn.text}</span>
+      </div>
+    )
   if (turn.kind === 'earlier')
     return (
       <div
@@ -1760,7 +1815,7 @@ type LiveProps = {
   onMode?: (mode: RunnerMode) => Promise<void>
   permissionMode?: RunnerMode
   onStop?: () => void
-  onRespond?: (requestId: string, decision: AskDecision, answers?: Record<string, string>) => void
+  onRespond?: (requestId: string, decision: AskDecision, answers?: Record<string, string>, note?: string) => void
   onRevert?: (path: string) => Promise<string>
   onSavePlan?: (body: string) => Promise<void>
   onAddToJira?: (body: string) => Promise<string>
@@ -2081,7 +2136,6 @@ function Detail({
       .catch((err: unknown) => alive.current && setSendError(err instanceof Error ? err.message : String(err)))
   }
   const [shell, setShell] = useState<{ command: string; code: number | null; output: string; truncated: boolean } | 'running' | null>(null)
-  const [memoryNote, setMemoryNote] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const background = useMemo<BackgroundTask[]>(() => {
     const fromTranscript = data.turns.flatMap((t) =>
@@ -2120,22 +2174,13 @@ function Detail({
         setSendError(err instanceof Error ? err.message : String(err))
       })
   }
-  const saveMemory = (target: 'project' | 'user') => {
-    const note = memoryNote
-    if (!note || !sessionCwd || !window.kokpit) return
-    setMemoryNote(null)
-    window.kokpit
-      .appendMemory(target, sessionCwd, note)
-      .then((file) => alive.current && setNotice(`Saved to ${file}`))
-      .catch((err: unknown) => alive.current && setSendError(err instanceof Error ? err.message : String(err)))
-  }
   const send = () => {
     const typed = text.trim()
     const images = pasted.payload()
     if (!typed && !images.length) return
     if (sessionCwd && !images.length && typed.startsWith('!') && typed.slice(1).trim()) return runBang(typed.slice(1).trim())
-    if (sessionCwd && !images.length && typed.startsWith('#') && typed.slice(1).trim()) {
-      setMemoryNote(typed.slice(1).trim())
+    if (blockingAsk && typed && onRespond) {
+      onRespond(blockingAsk.requestId, 'deny', undefined, typed)
       setText('')
       return
     }
@@ -2192,6 +2237,7 @@ function Detail({
       })
   }
   const errorLine = sendError ?? live?.lastError
+  const blockingAsk = live?.pending.find((p) => p.toolName !== 'AskUserQuestion')
   const continueWith = () => {
     const keep = files.filter((f) => f.included).map((f) => f.path)
     const drop = files.filter((f) => !f.included).map((f) => f.path)
@@ -2248,6 +2294,11 @@ function Detail({
       .catch((err: unknown) => alive.current && setPanelMsg({ tone: 'err', text: err instanceof Error ? err.message : String(err) }))
   }
   const approvePlan = () => {
+    const planAsk = live?.pending.find((p) => p.toolName === 'ExitPlanMode')
+    if (planAsk && onRespond) {
+      setPlanMsg({ tone: 'ok', text: 'Plan approved' })
+      return onRespond(planAsk.requestId, 'allow')
+    }
     if (!onSend) return console.log('approve and implement plan')
     setPlanMsg(null)
     onSend('The plan is approved. Implement it now, step by step.')
@@ -2322,7 +2373,10 @@ function Detail({
       }
       if (e.key === 'Escape' && running) {
         const overlay = document.querySelector('[aria-modal],[role="menu"],[role="listbox"],[role="dialog"]')
-        if (!e.defaultPrevented && !overlay && (!isTyping(e) || e.target === inputRef.current)) stop()
+        if (!e.defaultPrevented && !overlay && (!isTyping(e) || e.target === inputRef.current)) {
+          if (blockingAsk && onRespond) onRespond(blockingAsk.requestId, 'deny')
+          else stop()
+        }
         return
       }
       if (e.ctrlKey || isTyping(e)) return
@@ -2459,14 +2513,8 @@ function Detail({
                 <ApprovalCard
                   key={p.requestId}
                   shortcuts={i === 0}
-                  request={{
-                    type: 'command',
-                    action: p.title,
-                    command: p.detail,
-                    cwd: live.cwd,
-                    rule: p.toolName,
-                    waited: relativeTime(p.createdAt, Date.now())
-                  }}
+                  safe={p.defaultToNo}
+                  request={approvalRequest(p, live.cwd)}
                   onAllow={() => onRespond?.(p.requestId, 'allow')}
                   onDeny={() => onRespond?.(p.requestId, 'deny')}
                   onAlwaysAllow={p.canAlwaysAllow ? () => onRespond?.(p.requestId, 'always') : undefined}
@@ -2538,28 +2586,6 @@ function Detail({
                 )}
               </div>
             )}
-            {memoryNote && (
-              <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', border: '1px solid var(--line)', borderRadius: 10, fontSize: 12.5 }}>
-                <Icon name="bookmark_add" size={16} color="var(--tx3)" />
-                <span style={{ flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Remember: {memoryNote}</span>
-                <button onClick={() => saveMemory('project')} style={{ fontSize: 12, fontWeight: 500, padding: '2px 8px', borderRadius: 6, border: '1px solid var(--line)', cursor: 'pointer' }}>
-                  Project CLAUDE.md
-                </button>
-                <button onClick={() => saveMemory('user')} style={{ fontSize: 12, fontWeight: 500, padding: '2px 8px', borderRadius: 6, border: '1px solid var(--line)', cursor: 'pointer' }}>
-                  User CLAUDE.md
-                </button>
-                <button
-                  aria-label="Cancel"
-                  onClick={() => {
-                    setText((cur) => cur || `#${memoryNote}`)
-                    setMemoryNote(null)
-                  }}
-                  style={{ display: 'flex', cursor: 'pointer' }}
-                >
-                  <Icon name="close" size={16} color="var(--tx3)" />
-                </button>
-              </div>
-            )}
             {notice && (
               <div role="status" style={{ padding: '0 4px 6px', fontSize: 12, color: 'var(--ok)' }} onClick={() => setNotice(null)}>
                 {notice}
@@ -2599,7 +2625,7 @@ function Detail({
                   }}
                   onKeyDown={(e) => {
                     if (slash.onKeyDown(e) || mention.onKeyDown(e)) return
-                    const history = [...sentTexts, ...outbox.map((m) => m.text)].filter((t, i, all) => t.trim() && t !== all[i - 1])
+                    const history = sentTexts.filter((t, i, all) => t.trim() && t !== all[i - 1])
                     const el = e.currentTarget
                     if (e.key === 'ArrowUp' && !e.shiftKey && !e.metaKey && history.length && !el.value.slice(0, el.selectionStart).includes('\n')) {
                       e.preventDefault()
@@ -2625,6 +2651,18 @@ function Detail({
                       e.preventDefault()
                       const cycle: RunnerMode[] = MODES.filter((m) => m !== 'bypassPermissions')
                       pickMode(cycle[(cycle.indexOf(mode) + 1) % cycle.length] ?? 'default')
+                      return
+                    }
+                    const newline = e.key === 'Enter' && e.altKey && !e.metaKey
+                    const ctrlJ = e.key === 'j' && e.ctrlKey && !e.metaKey && !e.altKey
+                    const backslash = e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.altKey && el.selectionStart === el.selectionEnd && el.value.slice(0, el.selectionStart).endsWith('\\')
+                    if (newline || ctrlJ || backslash) {
+                      e.preventDefault()
+                      const at = el.selectionStart
+                      const before = backslash ? el.value.slice(0, at - 1) : el.value.slice(0, at)
+                      const next = `${before}\n${el.value.slice(el.selectionEnd)}`
+                      setText(next)
+                      requestAnimationFrame(() => el.setSelectionRange(before.length + 1, before.length + 1))
                       return
                     }
                     if (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.nativeEvent.isComposing) {
@@ -2672,7 +2710,7 @@ function Detail({
                   />
                 )}
                 <span style={{ flex: 1 }} />
-                <span style={{ fontSize: 11.5, color: 'var(--tx3)' }}>{sessionCwd && text.startsWith('!') ? '↵ run in the session folder' : sessionCwd && text.startsWith('#') ? '↵ save to memory' : running ? 'Esc to interrupt' : '↵ send · ⇧↵ new line · ⇧⇥ mode'}</span>
+                <span style={{ fontSize: 11.5, color: 'var(--tx3)' }}>{sessionCwd && text.startsWith('!') ? '↵ run in the session folder' : blockingAsk ? '↵ deny and tell Claude what to do instead' : running ? 'Esc to interrupt' : '↵ send · ⇧↵ new line · ⇧⇥ mode'}</span>
                 {running ? (
                   <button
                     onClick={stop}
@@ -2854,7 +2892,7 @@ export function RealSessionDetailPage({
       ...base,
       header: { ...base.header, status: s === 'idle' && claudeStillWorking(live.background) ? 'running' : LIVE_STATUS[s] },
       placeholder: s === 'running' || s === 'starting' || s === 'waiting' ? WORKING : 'Message Claude…',
-      running: s === 'running' || s === 'waiting'
+      running: s === 'running' || s === 'waiting' || s === 'starting'
     }
   }, [base, live])
   const [agentId, setAgentId] = useState<string | null>(null)

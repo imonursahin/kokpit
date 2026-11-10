@@ -339,3 +339,25 @@ test('a queued message keeps a waiting session waiting', async () => {
   expect(runner.list().find((l) => l.sessionId === id)?.state).toBe('waiting')
   runner.dispose()
 })
+
+test('a failed turn shows the real reason, not the result subtype', async () => {
+  const { stateAfterResult } = await import('./runner')
+  expect(stateAfterResult('running', { is_error: true, subtype: 'error_during_execution', errors: ['Prompt is too long'] }, false)).toEqual({ state: 'error', lastError: 'Prompt is too long' })
+  expect(stateAfterResult('running', { is_error: true, subtype: 'success', result: 'API Error: 529 Overloaded' }, false)).toEqual({ state: 'error', lastError: 'API Error: 529 Overloaded' })
+  expect(stateAfterResult('running', { is_error: true, subtype: 'error_max_turns', errors: [] }, false)).toEqual({ state: 'error', lastError: 'error_max_turns' })
+})
+
+test('the background task list follows the full set the SDK reports, so a missed end event cannot leave it running', async () => {
+  const { syncTasks, trackTask } = await import('./runner')
+  const tasks = new Map()
+  trackTask(tasks, { subtype: 'task_started', task_id: 'a', task_type: 'local_bash', description: 'dev server' }, new Date('2026-01-01T10:00:00Z'))
+  trackTask(tasks, { subtype: 'task_started', task_id: 'b', task_type: 'local_agent', description: 'review' })
+  syncTasks(tasks, [
+    { task_id: 'a', task_type: 'local_bash', description: 'dev server' },
+    { task_id: 'c', task_type: 'local_workflow', description: 'audit' },
+    { task_id: 'd', task_type: 'monitor', description: 'watch', ambient: true }
+  ])
+  expect([...tasks.keys()]).toEqual(['a', 'c'])
+  expect(tasks.get('a').startedAt).toBe('2026-01-01T10:00:00.000Z')
+  expect(tasks.get('c').kind).toBe('Workflow')
+})

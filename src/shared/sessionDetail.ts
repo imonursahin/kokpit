@@ -16,11 +16,12 @@ export type DetailStep = {
   toolUseId?: string
   taskId?: string
   startedAt?: string
+  command?: string
 }
 
 export type DetailTurn =
   | { kind: 'user'; text: string; uuid?: string; parentUuid?: string }
-  | { kind: 'note'; text: string }
+  | { kind: 'note'; text: string; tone?: 'error' | 'info' }
   | { kind: 'claude'; steps: DetailStep[]; text?: string; output?: string; parts?: DetailPart[]; meta?: { model: string; time: string; cost: string } }
 
 export type DetailPart = { kind: 'text'; text: string } | { kind: 'thinking'; text: string } | { kind: 'steps'; steps: DetailStep[] }

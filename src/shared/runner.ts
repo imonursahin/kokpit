@@ -50,6 +50,7 @@ export type PendingAsk = {
   detail: string
   input: Record<string, unknown>
   canAlwaysAllow: boolean
+  defaultToNo?: boolean
   createdAt: string
 }
 
@@ -57,7 +58,7 @@ export type AskDecision = 'allow' | 'deny' | 'always'
 
 export type LiveState = 'starting' | 'running' | 'waiting' | 'idle' | 'error'
 
-export type Activity = { kind: 'thinking' | 'writing' | 'tool'; tool?: string; detail?: string }
+export type Activity = { kind: 'thinking' | 'writing' | 'tool' | 'retry' | 'compacting'; tool?: string; detail?: string }
 
 export type BackgroundTask = { id: string; kind: string; description: string; startedAt: string; toolUses?: number; lastTool?: string; ref?: string; toolUseId?: string; taskId?: string }
 

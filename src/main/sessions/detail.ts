@@ -13,8 +13,8 @@ import { gitRoot } from './repo'
 const run = promisify(execFile)
 
 const MAX_TURNS = 60
-const MAX_TEXT = 6000
-const MAX_OUTPUT = 2000
+const MAX_TEXT = 200_000
+const MAX_OUTPUT = 8000
 const MAX_PLAN = 200_000
 
 type Obj = Record<string, unknown>
@@ -22,6 +22,27 @@ const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !
 const str = (v: unknown): string => (typeof v === 'string' ? v : '')
 const chain = (o: Obj): { uuid?: string; parentUuid?: string } => ({ uuid: str(o['uuid']) || undefined, parentUuid: str(o['parentUuid']) || undefined })
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}\n…` : s)
+
+export function clipOutput(s: string, n = MAX_OUTPUT): string {
+  if (s.length <= n) return s
+  const head = s.slice(0, Math.floor(n * 0.4))
+  const tail = s.slice(s.length - Math.floor(n * 0.6))
+  const headCut = head.lastIndexOf('\n') > 0 ? head.slice(0, head.lastIndexOf('\n')) : head
+  const tailCut = tail.indexOf('\n') >= 0 ? tail.slice(tail.indexOf('\n') + 1) : tail
+  const hidden = lineCount(s) - lineCount(headCut) - lineCount(tailCut)
+  return `${headCut}\n… ${hidden} line${hidden === 1 ? '' : 's'} hidden …\n${tailCut}`
+}
+
+const diffText = (oldText: string, newText: string) =>
+  [...(oldText ? oldText.split('\n').map((l) => `- ${l}`) : []), ...(newText ? newText.split('\n').map((l) => `+ ${l}`) : [])].join('\n')
+
+function argSummary(input: Obj): string {
+  return Object.entries(input)
+    .filter(([, v]) => typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean')
+    .slice(0, 3)
+    .map(([k, v]) => `${k}: ${String(v).replace(/\s+/g, ' ').slice(0, 60)}`)
+    .join(', ')
+}
 
 type ClaudeTurn = Extract<DetailTurn, { kind: 'claude' }>
 type EditRecord = { path: string; oldText: string; newText: string; created: boolean }
@@ -57,20 +78,21 @@ function stepFor(name: string, input: Obj, cwd: string): DetailStep {
     case 'Read':
       return step('read', 'Read', path)
     case 'Edit':
-      return step('edit', 'Edited', path, { add: lineCount(str(input['new_string'])), del: lineCount(str(input['old_string'])) })
+      return step('edit', 'Edited', path, { add: lineCount(str(input['new_string'])), del: lineCount(str(input['old_string'])), output: clipOutput(diffText(str(input['old_string']), str(input['new_string']))) })
     case 'MultiEdit': {
       const edits = Array.isArray(input['edits']) ? input['edits'].filter(isObj) : []
       return step('edit', 'Edited', path, {
         add: edits.reduce((s, e) => s + lineCount(str(e['new_string'])), 0),
-        del: edits.reduce((s, e) => s + lineCount(str(e['old_string'])), 0)
+        del: edits.reduce((s, e) => s + lineCount(str(e['old_string'])), 0),
+        output: clipOutput(edits.map((e) => diffText(str(e['old_string']), str(e['new_string']))).join('\n\n'))
       })
     }
     case 'NotebookEdit':
       return step('edit', 'Edited', path)
     case 'Write':
-      return step('create', 'Wrote', path, { add: lineCount(str(input['content'])) })
+      return step('create', 'Wrote', path, { add: lineCount(str(input['content'])), output: clipOutput(diffText('', str(input['content']))) })
     case 'Bash':
-      return step('command', 'Ran', str(input['command']).split('\n')[0] ?? '')
+      return step('command', 'Ran', str(input['command']).split('\n')[0] ?? '', str(input['command']).includes('\n') ? { command: str(input['command']) } : {})
     case 'Grep':
       return step('search', 'Searched', str(input['pattern']))
     case 'Glob':
@@ -86,14 +108,21 @@ function stepFor(name: string, input: Obj, cwd: string): DetailStep {
       return step('read', 'Skill', str(input['skill']))
     case 'TodoWrite':
       return todoStep(input)
+    case 'ExitPlanMode':
+      return step('read', 'Plan', str(input['plan']).split('\n').find((l) => l.trim())?.replace(/^#+\s*/, '') ?? '', { output: clipOutput(str(input['plan']), MAX_TEXT) })
+    case 'AskUserQuestion': {
+      const qs = (Array.isArray(input['questions']) ? input['questions'] : []).filter(isObj)
+      return step('command', 'Asked', str(qs[0]?.['question']) + (qs.length > 1 ? ` (+${qs.length - 1})` : ''))
+    }
     default: {
       if (name.startsWith('mcp__')) {
         const parts = name.split('__')
         const tool = parts.slice(2).join(' ') || name
         const kind: DetailStepKind = /jira/i.test(name) ? 'jira' : 'fetch'
-        return step(kind, 'Called', `${parts[1] ?? ''} · ${tool}`)
+        const args = argSummary(input)
+        return step(kind, 'Called', `${parts[1] ?? ''} · ${tool}${args ? ` (${args})` : ''}`)
       }
-      return step('command', name, '')
+      return step('command', name, argSummary(input))
     }
   }
 }
@@ -107,13 +136,20 @@ function resultText(content: unknown): string {
     .join('\n')
 }
 
+export const isRejection = (text: string) => /^The user doesn't want to (proceed|take this action)/.test(text.trim())
+
 function resultMeta(step: DetailStep, text: string, isError: boolean): string {
-  if (isError) return text.split('\n').find((l) => l.trim())?.slice(0, 80) ?? 'failed'
+  if (isError) return isRejection(text) ? 'Rejected' : (text.split('\n').find((l) => l.trim())?.slice(0, 80) ?? 'failed')
+  if (step.label === 'Plan') return /approved/i.test(text) ? 'Approved' : ''
+  if (step.label === 'Skill') return ''
   if (step.kind === 'read') {
     const n = lineCount(text)
     return n === 1 ? '1 line' : `${n} lines`
   }
   if (step.kind === 'search') {
+    if (/^No (files|matches) found/i.test(text.trim())) return 'no matches'
+    const found = /^Found (\d+)/.exec(text.trim())
+    if (found) return `${found[1]} results`
     const n = text.split('\n').filter((l) => l.trim()).length
     return n ? `${n} results` : 'no matches'
   }
@@ -350,7 +386,14 @@ export async function buildDetail(item: SessionIndexItem, nowMs = Date.now(), op
     const onlyHooks =
       last?.kind === 'claude' && !last.text && !last.output && !last.parts?.some((p) => p.kind !== 'steps') && last.steps.every((s) => s.label.startsWith('Hook · '))
     const at = onlyHooks ? turns.length - 2 : turns.length - 1
-    if (turns[at]?.kind !== 'user') return
+    if (turns[at]?.kind !== 'user') {
+      const prev = turns[turns.length - 1]
+      if (!(prev?.kind === 'note' && prev.text === 'Interrupted')) {
+        closeTurn()
+        turns.push({ kind: 'note', text: 'Interrupted', tone: 'info' })
+      }
+      return
+    }
     turns.splice(at)
     current = null
   }
@@ -380,7 +423,8 @@ export async function buildDetail(item: SessionIndexItem, nowMs = Date.now(), op
     const message = isObj(o['message']) ? o['message'] : {}
 
     const compactNote = () => {
-      if (turns.at(-1)?.kind === 'note') return
+      const prev = turns.at(-1)
+      if (prev?.kind === 'note' && prev.text === 'Conversation compacted') return
       closeTurn()
       turns.push({ kind: 'note', text: 'Conversation compacted' })
     }
@@ -403,7 +447,7 @@ export async function buildDetail(item: SessionIndexItem, nowMs = Date.now(), op
           if (!step) continue
           const text = resultText(b['content'])
           const isError = b['is_error'] === true
-          step.state = isError ? 'error' : 'done'
+          step.state = isError && !isRejection(text) ? 'error' : 'done'
           step.meta = resultMeta(step, text, isError)
           const launched = isObj(o['toolUseResult']) ? o['toolUseResult'] : {}
           if (!isError && (launched['status'] === 'async_launched' || str(launched['backgroundTaskId']))) background.add(str(b['tool_use_id']))
@@ -414,7 +458,7 @@ export async function buildDetail(item: SessionIndexItem, nowMs = Date.now(), op
             step.state = 'running'
             step.meta = 'in background'
           }
-          if (step.kind === 'command' || isError) step.output = clip(text, MAX_OUTPUT)
+          if (isError || !step.output) step.output = clipOutput(step.command ? `$ ${step.command}\n\n${text}` : text, step.kind === 'read' ? 2000 : MAX_OUTPUT)
         }
       }
       const prompt = promptOf(content)
@@ -479,6 +523,15 @@ export async function buildDetail(item: SessionIndexItem, nowMs = Date.now(), op
       continue
     }
 
+    if (type === 'system' && str(o['subtype']) === 'informational') {
+      const text = str(o['content']).trim()
+      if (text) {
+        closeTurn()
+        turns.push({ kind: 'note', text: clip(text, 600), tone: str(o['level']) === 'warning' || str(o['level']) === 'error' ? 'error' : 'info' })
+      }
+      continue
+    }
+
     if (type === 'system' && str(o['subtype']) === 'local_command') {
       const output = localCommandOutput(str(o['content']))
       if (output) {
@@ -490,6 +543,11 @@ export async function buildDetail(item: SessionIndexItem, nowMs = Date.now(), op
     }
 
     if (type !== 'assistant') continue
+    if (o['isApiErrorMessage'] === true) {
+      closeTurn()
+      turns.push({ kind: 'note', text: clip(promptOf(message['content']).trim() || 'API error', 600), tone: 'error' })
+      continue
+    }
     const msgModel = str(message['model'])
     if (msgModel && msgModel !== '<synthetic>') model = msgModel
     if (!current) {

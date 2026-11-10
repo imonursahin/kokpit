@@ -145,12 +145,25 @@ export function trackTask(tasks: Map<string, BackgroundTask>, msg: Record<string
 
 export function stateAfterResult(
   prev: LiveSession['state'],
-  result: { is_error: boolean; subtype: string },
+  result: { is_error: boolean; subtype: string; errors?: string[]; result?: string },
   interrupted: boolean
 ): Pick<LiveSession, 'state' | 'lastError'> | null {
   if (interrupted) return { state: 'idle', lastError: undefined }
   if (prev === 'error' && !result.is_error) return null
-  return { state: result.is_error ? 'error' : 'idle', lastError: result.subtype === 'success' ? undefined : result.subtype }
+  if (!result.is_error && result.subtype === 'success') return { state: 'idle', lastError: undefined }
+  const reason = result.errors?.filter(Boolean).join(' ') || (typeof result.result === 'string' && result.result.trim()) || result.subtype
+  return { state: result.is_error ? 'error' : 'idle', lastError: reason.slice(0, 500) }
+}
+
+export function syncTasks(tasks: Map<string, BackgroundTask>, live: { task_id: string; task_type: string; description: string; ambient?: boolean }[], now = new Date()): void {
+  const keep = new Set<string>()
+  for (const t of live) {
+    if (t.ambient) continue
+    keep.add(t.task_id)
+    if (!tasks.has(t.task_id))
+      tasks.set(t.task_id, { id: t.task_id, kind: TASK_KINDS[t.task_type] ?? (t.task_type || 'Task'), description: (t.description || 'Task').slice(0, 160), startedAt: now.toISOString(), taskId: t.task_id })
+  }
+  for (const id of [...tasks.keys()]) if (!keep.has(id)) tasks.delete(id)
 }
 
 function describe(toolName: string, input: Record<string, unknown>): { title: string; detail: string } {
@@ -295,7 +308,8 @@ export class Runner {
               title,
               detail,
               input: toolInput,
-              canAlwaysAllow: !!opts.suggestions?.length,
+              canAlwaysAllow: !!opts.suggestions?.length && !opts.suppressAlwaysAllowRule,
+              defaultToNo: opts.defaultToNo === true || undefined,
               createdAt: new Date().toISOString(),
               suggestions: opts.suggestions,
               resolve
@@ -347,10 +361,18 @@ export class Runner {
           l.info.state = 'running'
           this.publish(l)
         } else if (msg.type === 'system' && msg.subtype === 'status') {
-          if (isRunnerMode(msg.permissionMode) && msg.permissionMode !== l.info.mode) {
-            l.info.mode = msg.permissionMode
-            this.publish(l)
-          }
+          if (isRunnerMode(msg.permissionMode) && msg.permissionMode !== l.info.mode) l.info.mode = msg.permissionMode
+          if (msg.status === 'compacting') l.info.activity = { kind: 'compacting' }
+          else if (l.info.activity?.kind === 'compacting') l.info.activity = { kind: 'thinking' }
+          if (msg.compact_result === 'failed') l.info.lastError = `Compaction failed${msg.compact_error ? `: ${msg.compact_error}` : ''}`
+          this.publish(l)
+        } else if (msg.type === 'system' && msg.subtype === 'api_retry') {
+          const cause = msg.error_status ? `API error ${msg.error_status}` : 'Connection error'
+          l.info.activity = { kind: 'retry', detail: `${cause} · attempt ${msg.attempt}/${msg.max_retries} in ${Math.max(1, Math.round(msg.retry_delay_ms / 1000))}s` }
+          this.publish(l)
+        } else if (msg.type === 'system' && msg.subtype === 'background_tasks_changed') {
+          syncTasks(l.tasks, msg.tasks)
+          this.publish(l)
         } else if (msg.type === 'system' && msg.subtype === 'informational') {
           if (/blocked by hook|blocked/i.test(msg.content)) {
             l.info.lastError = msg.content.split('\n').slice(0, 3).join(' ')
@@ -385,7 +407,7 @@ export class Runner {
           l.tools.clear()
           this.setPartial(l, '')
           void this.applyTitle(l)
-          l.info.costUsd += msg.total_cost_usd
+          l.info.costUsd = msg.total_cost_usd
           const next = stateAfterResult(l.info.state, msg, !!l.interrupted)
           l.interrupted = false
           if (next) Object.assign(l.info, next)
@@ -576,7 +598,9 @@ export class Runner {
     l.pending.delete(requestId)
     const d = decision as AskDecision
     if (d === 'deny') {
-      p.resolve({ behavior: 'deny', message: typeof note === 'string' && note.trim() ? note : 'The user denied this action' })
+      const reason = (typeof note === 'string' ? note.trim() : '') || (p.toolName === 'AskUserQuestion' ? 'The user skipped this question' : '')
+      if (!reason) l.interrupted = true
+      p.resolve(reason ? { behavior: 'deny', message: reason } : { behavior: 'deny', message: 'The user denied this action and stopped the turn', interrupt: true })
     } else {
       p.resolve({ behavior: 'allow', updatedInput: picked ? { ...p.input, answers: picked } : p.input, updatedPermissions: d === 'always' ? p.suggestions : undefined })
     }

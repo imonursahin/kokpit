@@ -25,7 +25,7 @@ export type TurnPart = { kind: 'text'; text: string } | { kind: 'thinking'; text
 export type TurnMeta = { model: string; thinking?: string; time: string; cost: string }
 
 export type Turn =
-  | { kind: 'earlier'; text: string; more?: boolean }
+  | { kind: 'earlier'; text: string; more?: boolean; tone?: 'error' | 'info' }
   | { kind: 'user'; text: Rich; uuid?: string; parentUuid?: string }
   | { kind: 'claude'; name?: boolean; steps: Step[]; text?: Rich; blocks?: TextBlock[]; markdown?: string; output?: string; parts?: TurnPart[]; meta?: TurnMeta }
   | { kind: 'ask'; request: ApprovalRequest }

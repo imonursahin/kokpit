@@ -187,7 +187,7 @@ export function App() {
     (id: string, askId?: string) => {
       const pending = runner.live.get(id)?.pending ?? []
       const ask = askId ? pending.find((p) => p.requestId === askId) : pending[0]
-      if (ask && ask.toolName !== 'AskUserQuestion') runner.respond(id, ask.requestId, 'allow').catch(() => open(id))
+      if (ask && ask.toolName !== 'AskUserQuestion' && !ask.defaultToNo) runner.respond(id, ask.requestId, 'allow').catch(() => open(id))
       else open(id)
     },
     [runner, open]
@@ -436,7 +436,7 @@ export function App() {
               return window.kokpit?.integrations.addJiraComment(key, body) ?? Promise.reject(new Error('Not available'))
             }}
             onStop={() => void runner.interrupt(id)}
-            onRespond={(requestId, decision, answers) => void runner.respond(id, requestId, decision, undefined, answers)}
+            onRespond={(requestId, decision, answers, note) => void runner.respond(id, requestId, decision, note, answers)}
             onRevert={(path) => window.kokpit?.revertFile(id, path) ?? Promise.reject(new Error('Not available'))}
           />
         )

@@ -1,17 +1,39 @@
 import type { CSSProperties, ReactNode } from 'react'
 
+type Align = CSSProperties['textAlign']
+
 type Block =
   | { type: 'front'; fields: [string, string][] }
   | { type: 'heading'; level: number; text: string }
   | { type: 'p'; text: string }
-  | { type: 'list'; ordered: boolean; start: number; items: string[] }
+  | { type: 'list'; ordered: boolean; start: number; items: string[]; marks: { nested: boolean; ordered: boolean; n: number }[] }
   | { type: 'code'; text: string }
+  | { type: 'quote'; text: string }
+  | { type: 'hr'; text: string }
+  | { type: 'table'; text: string; align: Align[]; head: string[]; rows: string[][] }
 
 const HEADING = /^(#{1,6})\s+(.*)$/
-const BULLET = /^\s*[-*+]\s+(.*)$/
-const NUMBERED = /^\s*(\d+)[.)]\s+(.*)$/
+const LIST_ITEM = /^(\s*)(?:[-*+]|(\d+)[.)])\s+(.*)$/
 const FENCE = /^\s*```/
-const INLINE = /(`[^`]+`)|(\*\*[^*]+\*\*)|(\[[^\]]+\]\([^)\s]+\))|(\*[^*\s][^*]*\*)|((?<!\w)_[^_\s][^_]*_(?!\w))|(https:\/\/[^\s<>()[\]`"']*[^\s<>()[\]`"'.,;:!?])/g
+const HR = /^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/
+const QUOTE = /^\s*>\s?(.*)$/
+const SEPARATOR = /^\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?\s*$/
+const INLINE = /(`[^`]+`)|(\*\*[^*]+\*\*)|(\[[^\]]+\]\([^)\s]+\))|(\*[^*\s][^*]*\*)|((?<!\w)_[^_\s][^_]*_(?!\w))|(https?:\/\/[^\s<>()[\]`"']*[^\s<>()[\]`"'.,;:!?])/g
+
+function cells(row: string): string[] {
+  return row
+    .trim()
+    .replace(/^\|/, '')
+    .replace(/(?<!\\)\|$/, '')
+    .split(/(?<!\\)\|/)
+    .map((c) => c.trim().replace(/\\\|/g, '|'))
+}
+
+function tableAt(lines: string[], i: number): boolean {
+  const head = lines[i] ?? ''
+  const sep = lines[i + 1] ?? ''
+  return head.includes('|') && sep.includes('|') && SEPARATOR.test(sep) && cells(head).length === cells(sep).length
+}
 
 export function parse(source: string): Block[] {
   const lines = source.replace(/\r\n?/g, '\n').split('\n')
@@ -50,26 +72,63 @@ export function parse(source: string): Block[] {
       i++
       continue
     }
-    const first = NUMBERED.exec(line)
-    if (first || BULLET.test(line)) {
-      const ordered = !!first
-      const marker = ordered ? NUMBERED : BULLET
+    if (HR.test(line)) {
+      blocks.push({ type: 'hr', text: line.trim() })
+      i++
+      continue
+    }
+    if (QUOTE.test(line)) {
+      const text: string[] = []
+      while (i < lines.length) {
+        const q = QUOTE.exec(lines[i] ?? '')
+        if (!q) break
+        if (q[1]?.trim()) text.push(q[1].trim())
+        i++
+      }
+      blocks.push({ type: 'quote', text: text.join(' ') })
+      continue
+    }
+    if (tableAt(lines, i)) {
+      const head = cells(line)
+      const align = cells(lines[i + 1] ?? '').map((c): Align =>
+        c.startsWith(':') && c.endsWith(':') ? 'center' : c.endsWith(':') ? 'right' : c.startsWith(':') ? 'left' : undefined
+      )
+      const raw = [line.trim(), (lines[i + 1] ?? '').trim()]
+      const rows: string[][] = []
+      i += 2
+      while (i < lines.length && lines[i]?.trim() && lines[i]?.includes('|')) {
+        const row = cells(lines[i] ?? '')
+        rows.push(head.map((_, n) => row[n] ?? ''))
+        raw.push((lines[i] ?? '').trim())
+        i++
+      }
+      blocks.push({ type: 'table', text: raw.join(' '), align, head, rows })
+      continue
+    }
+    const first = LIST_ITEM.exec(line)
+    if (first) {
+      const base = first[1]?.length ?? 0
+      const ordered = first[2] !== undefined
       const items: string[] = []
+      const marks: { nested: boolean; ordered: boolean; n: number }[] = []
       while (i < lines.length) {
         const l = lines[i] ?? ''
-        const m = marker.exec(l)
-        if (m) items.push(m[m.length - 1] ?? '')
-        else if (l.trim() && /^\s+/.test(l) && items.length) items[items.length - 1] += ` ${l.trim()}`
+        const m = LIST_ITEM.exec(l)
+        const nested = !!m && (m[1]?.length ?? 0) >= base + 2
+        if (m && (nested || (m[2] !== undefined) === ordered)) {
+          items.push(m[3] ?? '')
+          marks.push({ nested, ordered: m[2] !== undefined, n: Number(m[2] ?? 1) })
+        } else if (l.trim() && /^\s+/.test(l) && items.length) items[items.length - 1] += ` ${l.trim()}`
         else break
         i++
       }
-      blocks.push({ type: 'list', ordered, start: Number(first?.[1] ?? 1), items })
+      blocks.push({ type: 'list', ordered, start: Number(first[2] ?? 1), items, marks })
       continue
     }
     const text: string[] = []
     while (i < lines.length) {
       const l = lines[i] ?? ''
-      if (!l.trim() || FENCE.test(l) || HEADING.test(l) || BULLET.test(l) || NUMBERED.test(l)) break
+      if (!l.trim() || FENCE.test(l) || HEADING.test(l) || LIST_ITEM.test(l) || HR.test(l) || QUOTE.test(l) || tableAt(lines, i)) break
       text.push(l.trim())
       i++
     }
@@ -115,7 +174,7 @@ export function inline(text: string): ReactNode[] {
       const label = inline(tok.slice(1, close))
       const href = tok.slice(close + 2, -1)
       out.push(
-        href.startsWith('https://') ? link(key, href, label) : <span key={key}>{label}</span>
+        /^https?:\/\//i.test(href) ? link(key, href, label) : <span key={key}>{label}</span>
       )
     } else if (m[6]) out.push(link(key, tok, tok))
     else out.push(<em key={key}>{inline(tok.slice(1, -1))}</em>)
@@ -192,17 +251,62 @@ function render(b: Block, mb: number, key: number): ReactNode {
         {b.text}
       </pre>
     )
-  const style: CSSProperties = {
-    margin: `0 0 ${mb}px`,
-    paddingLeft: 20,
-    color: 'var(--tx2)',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 4
+  if (b.type === 'quote')
+    return (
+      <blockquote key={key} style={{ margin: `0 0 ${mb}px`, padding: '2px 0 2px 12px', borderLeft: '3px solid var(--line)', color: 'var(--tx3)' }}>
+        {inline(b.text)}
+      </blockquote>
+    )
+  if (b.type === 'hr') return <hr key={key} style={{ margin: `0 0 ${mb}px`, border: 0, borderTop: '1px solid var(--line-soft)' }} />
+  if (b.type === 'table') {
+    const cell = (n: number): CSSProperties => ({ padding: '5px 10px', border: '1px solid var(--line-soft)', textAlign: b.align[n], verticalAlign: 'top' })
+    return (
+      <div key={key} style={{ margin: `0 0 ${mb}px`, overflowX: 'auto' }}>
+        <table style={{ borderCollapse: 'collapse', overflowWrap: 'normal', color: 'var(--tx2)' }}>
+          <thead>
+            <tr>
+              {b.head.map((c, n) => (
+                <th key={n} style={{ ...cell(n), border: '1px solid var(--line)', background: 'var(--hover)', fontWeight: 600, color: 'var(--tx)' }}>
+                  {inline(c)}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {b.rows.map((r, n) => (
+              <tr key={n}>
+                {r.map((c, k) => (
+                  <td key={k} style={cell(k)}>
+                    {inline(c)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    )
   }
-  const items = b.items.map((t, n) => <li key={n}>{inline(t)}</li>)
-  return b.ordered ? (
-    <ol key={key} start={b.start} style={style}>
+  const items: ReactNode[] = []
+  for (let n = 0; n < b.items.length; ) {
+    const at = n++
+    const kids: ReactNode[] = []
+    const sub = b.marks[n]
+    while (n < b.items.length && b.marks[n]?.nested) kids.push(<li key={n}>{inline(b.items[n++] ?? '')}</li>)
+    items.push(
+      <li key={at}>
+        {inline(b.items[at] ?? '')}
+        {sub && kids.length > 0 && list(sub.ordered, sub.n, { marginTop: 4 }, kids)}
+      </li>
+    )
+  }
+  return list(b.ordered, b.start, { margin: `0 0 ${mb}px` }, items, key)
+}
+
+function list(ordered: boolean, start: number, extra: CSSProperties, items: ReactNode[], key?: number): ReactNode {
+  const style: CSSProperties = { ...extra, paddingLeft: 20, color: 'var(--tx2)', display: 'flex', flexDirection: 'column', gap: 4 }
+  return ordered ? (
+    <ol key={key} start={start} style={style}>
       {items}
     </ol>
   ) : (

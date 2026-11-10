@@ -6,7 +6,7 @@ export type ApprovalOption = { key: string; label: string; hint: string }
 
 export type ApprovalRequest =
   | { type: 'command'; action?: string; reason?: string; command: string; cwd: string; rule: string; waited: string }
-  | { type: 'edit'; action?: string; reason?: string; file: string; add: number; del: number; rule: string; waited: string }
+  | { type: 'edit'; action?: string; reason?: string; file: string; add: number; del: number; rule: string; waited: string; preview?: string }
   | { type: 'question'; question: string; options: ApprovalOption[]; waited: string }
 
 const ACTION = { command: '· Run a command', edit: '· Edit a file', question: '' } as const
@@ -59,7 +59,8 @@ export function ApprovalCard({
   onDeny,
   onAnswer,
   onViewDiff,
-  shortcuts = true
+  shortcuts = true,
+  safe = false
 }: {
   request: ApprovalRequest
   onAllow?: () => void
@@ -68,6 +69,7 @@ export function ApprovalCard({
   onAnswer?: (key: string) => void
   onViewDiff?: () => void
   shortcuts?: boolean
+  safe?: boolean
 }) {
   useEffect(() => {
     if (!shortcuts) return
@@ -79,13 +81,13 @@ export function ApprovalCard({
         return
       }
       const k = e.key.toLowerCase()
-      if (k === 'y') onAllow?.()
-      else if (k === 'a') onAlwaysAllow?.()
+      if (k === 'y' && !safe) onAllow?.()
+      else if (k === 'a' && !safe) onAlwaysAllow?.()
       else if (k === 'n') onDeny?.()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [request, onAllow, onAlwaysAllow, onDeny, onAnswer, shortcuts])
+  }, [request, onAllow, onAlwaysAllow, onDeny, onAnswer, shortcuts, safe])
 
   const isQuestion = request.type === 'question'
   const reason = request.type === 'question' ? '' : request.reason
@@ -163,7 +165,7 @@ export function ApprovalCard({
             <span style={{ color: 'var(--ok)' }}>+{request.add}</span>
             <span style={{ color: 'var(--err)' }}>−{request.del}</span>
             <span style={{ flex: 1 }} />
-            <button
+            {onViewDiff && <button
               onClick={onViewDiff}
               style={{
                 fontFamily: 'Geist,sans-serif',
@@ -175,8 +177,20 @@ export function ApprovalCard({
               }}
             >
               View diff
-            </button>
+            </button>}
           </div>
+        )}
+        {request.type === 'edit' && request.preview && (
+          <pre
+            className="selectable"
+            style={{ margin: 0, maxHeight: 260, overflow: 'auto', background: 'var(--code)', border: '1px solid var(--line)', borderRadius: 7, padding: '8px 12px', font: "12px/1.55 'Geist Mono',monospace", whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}
+          >
+            {request.preview.split('\n').map((l, i) => (
+              <div key={i} style={{ color: l.startsWith('+ ') ? 'var(--ok)' : l.startsWith('- ') ? 'var(--err)' : 'var(--tx2)' }}>
+                {l || ' '}
+              </div>
+            ))}
+          </pre>
         )}
         {request.type === 'question' && (
           <>
@@ -219,7 +233,7 @@ export function ApprovalCard({
       </div>
       {request.type !== 'question' && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 14px 14px', flexWrap: 'wrap' }}>
-          <CardButton primary hint="Y" onClick={onAllow}>
+          <CardButton primary hint={safe ? '' : 'Y'} onClick={onAllow}>
             Allow once
           </CardButton>
           {onAlwaysAllow && (
@@ -252,7 +266,7 @@ export function ApprovalCard({
               >
                 {request.rule}
               </span>
-              <span style={{ font: "400 11px/1 'Geist Mono',monospace", color: 'var(--tx3)' }}>A</span>
+              {!safe && <span style={{ font: "400 11px/1 'Geist Mono',monospace", color: 'var(--tx3)' }}>A</span>}
             </button>
           )}
           <span style={{ flex: 1 }} />
@@ -261,6 +275,11 @@ export function ApprovalCard({
               Deny
             </CardButton>
           </span>
+        </div>
+      )}
+      {!isQuestion && (
+        <div style={{ padding: '0 14px 12px', fontSize: 12, color: 'var(--tx3)' }}>
+          Deny stops Claude. To deny and say what to do instead, type it below and press Enter.
         </div>
       )}
       {isQuestion && (
