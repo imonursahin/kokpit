@@ -30,6 +30,7 @@ const api = {
     open: (target: TrayTarget): Promise<void> => ipcRenderer.invoke('tray:open', target),
     refreshUsage: (): Promise<unknown> => ipcRenderer.invoke('tray:refreshUsage'),
     quit: (): Promise<void> => ipcRenderer.invoke('tray:quit'),
+    join: (url: string): Promise<void> => ipcRenderer.invoke('tray:join', url),
     setHeight: (h: number): void => ipcRenderer.send('tray:height', h)
   },
   updates: {

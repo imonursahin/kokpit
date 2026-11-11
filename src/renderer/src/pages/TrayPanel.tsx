@@ -1,6 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
 import type { PlanWindow } from '@shared/settings'
+import type { CalendarEvent } from '@shared/integrations'
 import type { TraySession, TrayState } from '@shared/tray'
+import { whenLabel } from '@/pages/CalendarPage'
 import { relativeTime } from '@shared/time'
 import { Icon, Spinner } from '@/components/primitives'
 import { Status } from '@/components/Status'
@@ -158,6 +160,40 @@ function TextAction({ children, onClick, g, dim }: { children: string; onClick: 
   )
 }
 
+export function meetingsLeftToday(events: CalendarEvent[], nowMs: number): CalendarEvent[] {
+  return events.filter((e) => !e.allDay && e.response !== 'declined' && Date.parse(e.end) > nowMs).sort((a, b) => Date.parse(a.start) - Date.parse(b.start))
+}
+
+const clock = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+
+function MeetingRow({ e, g, nowMs, onJoin, onOpen }: { e: CalendarEvent; g: Glass; nowMs: number; onJoin: () => void; onOpen: () => void }) {
+  const [hover, setHover] = useState(false)
+  const when = whenLabel(e, nowMs)
+  return (
+    <div
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 8px', borderRadius: 8, background: when.tone === 'now' ? 'var(--ok-bg)' : hover ? g.hover : 'transparent' }}
+    >
+      <button onClick={onOpen} style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 1, textAlign: 'left' }}>
+        <span style={{ fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{e.title}</span>
+        <span style={{ fontSize: 11.5, color: g.faint, whiteSpace: 'nowrap' }}>
+          {clock(e.start)}–{clock(e.end)}
+          {when.text && <span style={{ color: when.tone === 'now' ? 'var(--ok)' : 'var(--wait-tx)', fontWeight: 500 }}> · {when.text}</span>}
+        </span>
+      </button>
+      {e.meetUrl && (
+        <button
+          onClick={onJoin}
+          style={{ height: 24, padding: '0 9px', borderRadius: 6, fontSize: 12, fontWeight: 500, background: when.tone === 'now' ? 'var(--ok)' : g.card, color: when.tone === 'now' ? '#fff' : 'var(--tx)', border: `1px solid ${g.border}`, flexShrink: 0 }}
+        >
+          Join
+        </button>
+      )}
+    </div>
+  )
+}
+
 const FOCUS_CSS = 'button{outline:none;cursor:pointer}button:focus-visible{outline:2px solid var(--run);outline-offset:1px}'
 
 export function TrayPanel() {
@@ -201,6 +237,7 @@ export function TrayPanel() {
   const windows = state?.usage?.available ? state.usage.windows : []
   const plan = state?.usage?.plan
   const idle = !!state && !state.waiting.length && !state.running.length && !state.unread.length
+  const todayLeft = state?.meetings ? meetingsLeftToday(state.meetings, Date.now()) : []
   const divider: CSSProperties = { height: 1, background: g.border, margin: '0 -2px' }
 
   return (
@@ -245,6 +282,27 @@ export function TrayPanel() {
             <Section title="Waiting for you" items={state.waiting} g={g} onOpen={open} />
             <Section title="Running" items={state.running} g={g} onOpen={open} />
             <Section title="Finished, not opened" items={state.unread} g={g} onOpen={open} />
+            {state.meetings && (
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                <span style={{ fontSize: 11.5, fontWeight: 500, color: g.faint, padding: '0 8px 4px' }}>Today’s meetings · {todayLeft.length}</span>
+                {todayLeft.length ? (
+                  todayLeft
+                    .slice(0, 5)
+                    .map((e) => (
+                      <MeetingRow
+                        key={`${e.id}:${e.start}`}
+                        e={e}
+                        g={g}
+                        nowMs={Date.now()}
+                        onJoin={() => void api?.tray.join(e.meetUrl)}
+                        onOpen={() => void api?.tray.open({ page: 'calendar' })}
+                      />
+                    ))
+                ) : (
+                  <span style={{ fontSize: 12.5, color: g.muted, padding: '4px 8px' }}>No more meetings today.</span>
+                )}
+              </div>
+            )}
             {idle && (
               <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: g.muted, padding: '4px 8px' }}>
                 <Icon name="check_circle" size={16} color={g.faint} />

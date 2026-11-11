@@ -7,7 +7,7 @@ export const NOTIFY_EVENTS = [
   { id: 'prChecksFailed', label: 'CI failed on your pull request', hint: '' },
   { id: 'prChangesRequested', label: 'Changes requested on your pull request', hint: '' },
   { id: 'prReviewRequested', label: 'Someone asked for your review', hint: '' },
-  { id: 'meetingSoon', label: 'A meeting is about to start', hint: '10, 5, 3 and 1 minute before, from Google Calendar' }
+  { id: 'meetingSoon', label: 'A meeting is about to start', hint: 'From Google Calendar, at the time you pick below' }
 ] as const
 
 export type NotifyEvent = (typeof NOTIFY_EVENTS)[number]['id']
@@ -28,16 +28,19 @@ export type KokpitSettings = {
   claudeExecutable: string
   assistantHome: string
   githubRefreshMinutes: number
+  meetingReminderMinutes: number
   includeDraftReviews: boolean
   notifyEnabled: boolean
   notifyWhenFocused: boolean
   menuBar: boolean
+  menuBarMeetings: boolean
   notify: Record<NotifyEvent, boolean>
   sessionTags: SessionTag[]
   sessionTagOf: Record<string, string>
 }
 
 export const GITHUB_REFRESH_CHOICES = [1, 2, 5, 10, 30]
+export const MEETING_REMINDER_CHOICES = [1, 3, 5, 10]
 
 export const DEFAULT_SETTINGS: KokpitSettings = {
   defaultModel: 'claude-opus-5-5',
@@ -47,10 +50,12 @@ export const DEFAULT_SETTINGS: KokpitSettings = {
   claudeExecutable: '',
   assistantHome: '',
   githubRefreshMinutes: 1,
+  meetingReminderMinutes: 5,
   includeDraftReviews: true,
   notifyEnabled: true,
   notifyWhenFocused: false,
   menuBar: true,
+  menuBarMeetings: false,
   sessionTags: [],
   sessionTagOf: {},
   notify: { sessionWaiting: false, sessionDone: false, sessionError: false, prChecksFailed: false, prChangesRequested: false, prReviewRequested: false, meetingSoon: true }

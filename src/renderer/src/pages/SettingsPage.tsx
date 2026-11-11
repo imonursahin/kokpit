@@ -3,6 +3,7 @@ import {
   DEFAULT_SETTINGS,
   EFFORT_CHOICES,
   GITHUB_REFRESH_CHOICES,
+  MEETING_REMINDER_CHOICES,
   MAX_SESSION_TAGS,
   NOTIFY_EVENTS,
   TAG_COLORS,
@@ -28,7 +29,7 @@ type SectionId = 'general' | 'claude' | 'notifications' | 'github' | 'sessions' 
 const SECTIONS: { id: SectionId; icon: string; label: string; sub: string }[] = [
   { id: 'general', icon: 'contrast', label: 'General', sub: 'How Kokpit looks' },
   { id: 'claude', icon: 'bolt', label: 'Claude', sub: 'Defaults for new sessions and which Claude Code runs them' },
-  { id: 'notifications', icon: 'notifications', label: 'Notifications', sub: 'macOS alerts for sessions and pull requests' },
+  { id: 'notifications', icon: 'notifications', label: 'Notifications', sub: 'macOS alerts for sessions, pull requests and meetings' },
   { id: 'github', icon: 'merge', label: 'GitHub', sub: 'The pull requests page and the count in the sidebar' },
   { id: 'sessions', icon: 'forum', label: 'Sessions', sub: 'Where Kokpit reads your Claude Code sessions' },
   { id: 'doctor', icon: 'stethoscope', label: 'Doctor', sub: 'What Kokpit needs on this machine, and whether it is there' },
@@ -545,6 +546,9 @@ export function SettingsPage({
                 <Row label="Show in menu bar" hint="A Kokpit icon in the macOS menu bar with running sessions and the ones waiting for you">
                   <Toggle label="Show in menu bar" on={settings?.menuBar ?? true} onChange={(v) => void save({ menuBar: v })} />
                 </Row>
+                <Row label="Today’s meetings in the menu bar" hint="Lists the meetings left today from Google Calendar, with a Join button" dim={settings?.menuBar === false}>
+                  <Toggle label="Today’s meetings in the menu bar" on={!!settings?.menuBarMeetings} onChange={(v) => void save({ menuBarMeetings: v })} />
+                </Row>
               </Group>
             )}
 
@@ -619,7 +623,16 @@ export function SettingsPage({
                 </Group>
                 <Group title="Sessions">{SESSION_EVENTS.map(eventRow)}</Group>
                 <Group title="Pull requests">{PR_EVENTS.map(eventRow)}</Group>
-                <Group title="Meetings">{MEETING_EVENTS.map(eventRow)}</Group>
+                <Group title="Meetings">
+                  {MEETING_EVENTS.map(eventRow)}
+                  <Row label="Remind me" hint="How long before a meeting starts" dim={!notifyOn || settings?.notify.meetingSoon === false}>
+                    <Segmented
+                      value={String(settings?.meetingReminderMinutes ?? 5)}
+                      onChange={(v) => void save({ meetingReminderMinutes: Number(v) })}
+                      options={MEETING_REMINDER_CHOICES.map((m) => ({ id: String(m), label: `${m} min` }))}
+                    />
+                  </Row>
+                </Group>
               </>
             )}
 

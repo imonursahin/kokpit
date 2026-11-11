@@ -1,3 +1,4 @@
+import type { CalendarEvent } from './integrations'
 import type { PlanUsage } from './settings'
 import type { SessionStatus } from './types'
 
@@ -9,6 +10,7 @@ export type TrayState = {
   unread: TraySession[]
   usage: PlanUsage | null
   usageAt: string
+  meetings: CalendarEvent[] | null
 }
 
-export type TrayTarget = { page: 'session'; id: string } | { page: 'overview' } | { page: 'about' }
+export type TrayTarget = { page: 'session'; id: string } | { page: 'overview' } | { page: 'about' } | { page: 'calendar' }

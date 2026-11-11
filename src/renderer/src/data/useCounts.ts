@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react'
 import type { CalendarEvent } from '@shared/integrations'
 import { LIBRARY_KINDS, type LibraryKind } from '@shared/library'
 
-export type ConfigCounts = Record<LibraryKind, number> & { jira: number; prs: number | null; connectionWarning: boolean; calendar: boolean; meetings: number }
+export type MeetingState = { state: 'live' | 'soon'; title: string }
+
+export type ConfigCounts = Record<LibraryKind, number> & { jira: number; prs: number | null; connectionWarning: boolean; calendar: boolean; meetings: number; meeting?: MeetingState }
 
 const MOCK: ConfigCounts = {
   instructions: 5,
@@ -38,9 +40,26 @@ export function meetingsLeft(events: CalendarEvent[], nowMs: number): number {
   return events.filter((e) => !e.allDay && e.response !== 'declined' && Date.parse(e.end) > nowMs).length
 }
 
-export function useConfigCounts(page: string, refreshMinutes = 1, includeDraftReviews = true): ConfigCounts {
+export function meetingState(events: CalendarEvent[], nowMs: number, reminderMinutes: number): MeetingState | undefined {
+  const timed = events.filter((e) => !e.allDay && e.response !== 'declined')
+  const live = timed.find((e) => Date.parse(e.start) <= nowMs && nowMs < Date.parse(e.end))
+  if (live) return { state: 'live', title: `In a meeting · ${live.title}` }
+  const soon = timed
+    .map((e) => ({ e, left: Date.parse(e.start) - nowMs }))
+    .filter((x) => x.left > 0 && x.left <= reminderMinutes * 60_000)
+    .sort((a, b) => a.left - b.left)[0]
+  return soon ? { state: 'soon', title: `${soon.e.title} starts in ${Math.ceil(soon.left / 60_000)} min` } : undefined
+}
+
+export function useConfigCounts(page: string, refreshMinutes = 1, includeDraftReviews = true, reminderMinutes = 5): ConfigCounts {
   const api = window.kokpit
   const [counts, setCounts] = useState<ConfigCounts>(api ? EMPTY : MOCK)
+  const [today, setToday] = useState<CalendarEvent[]>([])
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const t = window.setInterval(() => setNow(Date.now()), 20_000)
+    return () => window.clearInterval(t)
+  }, [])
 
   const [tick, setTick] = useState(0)
   useEffect(() => {
@@ -61,6 +80,7 @@ export function useConfigCounts(page: string, refreshMinutes = 1, includeDraftRe
       api.integrations.calendarEvents('day')
     ]).then(([lib, conn, jira, prs, today]) => {
       if (!alive) return
+      if (today.status === 'fulfilled') setToday(today.value)
       setCounts((prev) => {
         const next = { ...prev }
         if (lib.status === 'fulfilled')
@@ -69,7 +89,6 @@ export function useConfigCounts(page: string, refreshMinutes = 1, includeDraftRe
           next.connectionWarning = conn.value.some((c) => c.status === 'expired' || (c.status === 'disconnected' && c.id !== 'google'))
           next.calendar = conn.value.some((c) => c.id === 'google' && c.status !== 'disconnected')
         }
-        if (today.status === 'fulfilled') next.meetings = meetingsLeft(today.value, Date.now())
         if (jira.status === 'fulfilled') next.jira = jira.value.filter((i) => i.statusCategory !== 'done').length
         if (prs.status === 'fulfilled') next.prs = prs.value.mine + prs.value.reviews
         return next
@@ -96,5 +115,5 @@ export function useConfigCounts(page: string, refreshMinutes = 1, includeDraftRe
     }
   }, [api, mcpCheck])
 
-  return counts
+  return { ...counts, meetings: meetingsLeft(today, now), meeting: counts.calendar ? meetingState(today, now, reminderMinutes) : undefined }
 }

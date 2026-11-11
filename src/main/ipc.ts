@@ -6,7 +6,7 @@ import { readFile as readFileAsync, rm, writeFile as writeFileAsync } from 'node
 import { basename, join } from 'node:path'
 import { promisify } from 'node:util'
 import { jiraKeyFrom, type SessionIndexItem } from '../shared/sessionIndex'
-import type { MyPullRequests } from '../shared/integrations'
+import type { CalendarEvent, MyPullRequests } from '../shared/integrations'
 import type { SessionStatus } from '../shared/types'
 import { meetingNotices, prNotices, sessionNotices, type Notice } from './notifier'
 import type { LibraryEntry, LibraryRepo } from '../shared/library'
@@ -42,6 +42,7 @@ export function registerIpc(
     onSessions?: (items: SessionIndexItem[], showHeadless: boolean, menuBar: boolean) => void
     onPlanUsage?: (usage: PlanUsage) => void
     onUnread?: (list: { id: string; title: string }[]) => void
+    onMeetings?: (list: CalendarEvent[] | null) => void
     mainWindow?: () => BrowserWindow | null
   } = {}
 ): () => void {
@@ -362,10 +363,17 @@ export function registerIpc(
   const meetingsSent = new Set<string>()
   const meetingPoll = setInterval(() => {
     void settings.get().then(async (s) => {
+      if (s.menuBar && s.menuBarMeetings)
+        void integrations
+          .status()
+          .then((list) => (list.some((c) => c.id === 'google' && c.status !== 'disconnected') ? integrations.calendar('day') : null))
+          .then((events) => opts.onMeetings?.(events))
+          .catch(() => undefined)
+      else opts.onMeetings?.(null)
       if (!s.notifyEnabled || !s.notify.meetingSoon || !Notification.isSupported()) return
       const events = await integrations.upcoming().catch(() => [])
       if (meetingsSent.size > 500) meetingsSent.clear()
-      for (const n of meetingNotices(events, Date.now(), meetingsSent)) {
+      for (const n of meetingNotices(events, Date.now(), meetingsSent, s.meetingReminderMinutes)) {
         const note = new Notification({ title: n.title, body: n.body })
         note.on('click', () => {
           if (n.url) return void shell.openExternal(n.url)

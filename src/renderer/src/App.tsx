@@ -63,7 +63,7 @@ export function App() {
     if (!api) return
     setSettings(await api.settings.update(patch))
   }, [])
-  const config = useConfigCounts(page, settings?.githubRefreshMinutes ?? 1, settings?.includeDraftReviews ?? true)
+  const config = useConfigCounts(page, settings?.githubRefreshMinutes ?? 1, settings?.includeDraftReviews ?? true, settings?.meetingReminderMinutes ?? 5)
   const { items, sessions, state, error, footer, retry } = useSessions(settings?.showHeadless ?? false)
   const [archived, setArchived] = useState<Set<string>>(() => {
     try {

@@ -66,7 +66,7 @@ function EventRow({ e, nowMs }: { e: CalendarEvent; nowMs: number }) {
         columnGap: 16,
         padding: '10px 28px',
         borderBottom: '1px solid var(--line-soft)',
-        background: when.tone === 'now' ? 'var(--run-bg)' : undefined,
+        background: when.tone === 'now' ? 'var(--ok-bg)' : undefined,
         opacity: dim ? 0.55 : 1
       }}
     >
@@ -81,7 +81,7 @@ function EventRow({ e, nowMs }: { e: CalendarEvent; nowMs: number }) {
           >
             {e.title}
           </span>
-          {when.text && <span style={{ fontSize: 12, fontWeight: 500, color: when.tone === 'now' ? 'var(--run)' : 'var(--wait-tx)', flexShrink: 0 }}>{when.text}</span>}
+          {when.text && <span style={{ fontSize: 12, fontWeight: 500, color: when.tone === 'now' ? 'var(--ok)' : 'var(--wait-tx)', flexShrink: 0 }}>{when.text}</span>}
         </span>
         <span style={{ fontSize: 12, color: 'var(--tx3)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
           {[!e.allDay && duration(e), RESPONSE_LABEL[e.response], e.location].filter(Boolean).join(' · ')}
@@ -183,7 +183,7 @@ export function CalendarPage({ onConnect }: { onConnect: () => void }) {
           <Icon name="refresh" size={17} color="var(--tx2)" />
         </button>
       </div>
-      <div style={{ padding: '0 28px 12px', fontSize: 12.5, color: 'var(--tx3)' }}>Your primary Google calendar · reminders 10, 5, 3 and 1 minute before a meeting</div>
+      <div style={{ padding: '0 28px 12px', fontSize: 12.5, color: 'var(--tx3)' }}>Your primary Google calendar · pick the reminder time in Settings → Notifications</div>
       <div style={{ flex: 1, minHeight: 0, overflow: 'auto', paddingBottom: 24, borderTop: '1px solid var(--line)' }}>
         {!connected ? (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: '80px 0', textAlign: 'center' }}>

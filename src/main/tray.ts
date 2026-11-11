@@ -1,6 +1,7 @@
-import { app, BrowserWindow, ipcMain, Menu, nativeImage, screen, Tray } from 'electron'
+import { app, BrowserWindow, ipcMain, Menu, nativeImage, screen, shell, Tray } from 'electron'
 import type { SessionIndexItem } from '../shared/sessionIndex'
 import type { PlanUsage } from '../shared/settings'
+import type { CalendarEvent } from '../shared/integrations'
 import type { TraySession, TrayState, TrayTarget } from '../shared/tray'
 
 export type { TrayTarget }
@@ -77,6 +78,7 @@ export class KokpitTray {
   private title = ''
   private usage: PlanUsage | null = null
   private usageAt = ''
+  private meetings: CalendarEvent[] | null = null
   private unread: { id: string; title: string }[] = []
   private last: { items: SessionIndexItem[]; showHeadless: boolean } | null = null
   private hiddenAt = 0
@@ -87,10 +89,15 @@ export class KokpitTray {
     ipcMain.handle('tray:getState', () => this.state())
     ipcMain.handle('tray:open', (_e, target: unknown) => {
       const t = target as TrayTarget | null
-      if (t && (t.page === 'overview' || (t.page === 'session' && typeof t.id === 'string'))) {
+      if (t && (t.page === 'overview' || t.page === 'calendar' || (t.page === 'session' && typeof t.id === 'string'))) {
         this.panel?.hide()
         this.opts.open(t)
       }
+    })
+    ipcMain.handle('tray:join', (_e, url: unknown) => {
+      if (typeof url !== 'string' || !/^https:\/\//i.test(url) || !this.meetings?.some((m) => m.meetUrl === url)) return
+      this.panel?.hide()
+      void shell.openExternal(url)
     })
     ipcMain.handle('tray:quit', () => app.quit())
     ipcMain.on('tray:height', (_e, h: unknown) => {
@@ -100,6 +107,12 @@ export class KokpitTray {
 
   setUnread(list: { id: string; title: string }[]): void {
     this.unread = list
+    this.refresh()
+  }
+
+  setMeetings(list: CalendarEvent[] | null): void {
+    if (JSON.stringify(list) === JSON.stringify(this.meetings)) return
+    this.meetings = list
     this.refresh()
   }
 
@@ -144,7 +157,7 @@ export class KokpitTray {
     const unread = this.unread
       .filter((u) => !busy.has(u.id))
       .map((u) => ({ id: u.id, title: u.title || 'Session', sub: shown.find((i) => i.id === u.id)?.sub ?? '', status: 'done' as const }))
-    return { waiting, running, unread, usage: this.usage, usageAt: this.usageAt }
+    return { waiting, running, unread, usage: this.usage, usageAt: this.usageAt, meetings: this.meetings }
   }
 
   private refresh(): void {

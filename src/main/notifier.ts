@@ -47,25 +47,21 @@ export function prNotices(prev: MyPullRequests, next: MyPullRequests): Notice[] 
   return out
 }
 
-export const MEETING_MINUTES = [10, 5, 3, 1] as const
-
 export type MeetingNotice = { key: string; title: string; body: string; url: string }
 
-export function meetingNotices(events: CalendarEvent[], nowMs: number, sent: Set<string>): MeetingNotice[] {
+export function meetingNotices(events: CalendarEvent[], nowMs: number, sent: Set<string>, minutes: number): MeetingNotice[] {
   const out: MeetingNotice[] = []
   for (const e of events) {
     if (e.allDay || e.response === 'declined') continue
     const start = Date.parse(e.start)
     if (!Number.isFinite(start)) continue
     const left = start - nowMs
-    for (const m of MEETING_MINUTES) {
-      if (left > m * 60_000 || left <= (m - 1) * 60_000) continue
-      const key = `${e.id}:${e.start}:${m}`
-      if (sent.has(key)) continue
-      sent.add(key)
-      const at = new Date(start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      out.push({ key, title: `Meeting in ${m} min · ${short(e.title, 60)}`, body: e.meetUrl ? `Starts at ${at}. Click to join.` : `Starts at ${at}.`, url: e.meetUrl || e.url })
-    }
+    if (left > minutes * 60_000 || left <= (minutes - 1) * 60_000) continue
+    const key = `${e.id}:${e.start}:${minutes}`
+    if (sent.has(key)) continue
+    sent.add(key)
+    const at = new Date(start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    out.push({ key, title: `Meeting in ${minutes} min · ${short(e.title, 60)}`, body: e.meetUrl ? `Starts at ${at}. Click to join.` : `Starts at ${at}.`, url: e.meetUrl || e.url })
   }
   return out
 }

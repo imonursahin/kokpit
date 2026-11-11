@@ -3,7 +3,7 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import { dirname, resolve } from 'node:path'
 import { MODES } from '../shared/runner'
-import { DEFAULT_SETTINGS, EFFORT_CHOICES, GITHUB_REFRESH_CHOICES, MAX_SESSION_TAGS, MODEL_CHOICES, NOTIFY_EVENTS, TAG_COLORS, type KokpitSettings, type SessionTag } from '../shared/settings'
+import { DEFAULT_SETTINGS, EFFORT_CHOICES, GITHUB_REFRESH_CHOICES, MEETING_REMINDER_CHOICES, MAX_SESSION_TAGS, MODEL_CHOICES, NOTIFY_EVENTS, TAG_COLORS, type KokpitSettings, type SessionTag } from '../shared/settings'
 
 export function sanitizeSettings(input: unknown, base: KokpitSettings = DEFAULT_SETTINGS, strict = true): KokpitSettings {
   const reject = (message: string): false => {
@@ -26,10 +26,13 @@ export function sanitizeSettings(input: unknown, base: KokpitSettings = DEFAULT_
   }
   if (typeof o['githubRefreshMinutes'] === 'number' && GITHUB_REFRESH_CHOICES.includes(o['githubRefreshMinutes']))
     out.githubRefreshMinutes = o['githubRefreshMinutes']
+  if (typeof o['meetingReminderMinutes'] === 'number' && MEETING_REMINDER_CHOICES.includes(o['meetingReminderMinutes']))
+    out.meetingReminderMinutes = o['meetingReminderMinutes']
   if (typeof o['includeDraftReviews'] === 'boolean') out.includeDraftReviews = o['includeDraftReviews']
   if (typeof o['notifyEnabled'] === 'boolean') out.notifyEnabled = o['notifyEnabled']
   if (typeof o['notifyWhenFocused'] === 'boolean') out.notifyWhenFocused = o['notifyWhenFocused']
   if (typeof o['menuBar'] === 'boolean') out.menuBar = o['menuBar']
+  if (typeof o['menuBarMeetings'] === 'boolean') out.menuBarMeetings = o['menuBarMeetings']
   const notify = o['notify']
   if (typeof notify === 'object' && notify !== null) {
     for (const e of NOTIFY_EVENTS) {

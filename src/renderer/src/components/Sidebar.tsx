@@ -11,6 +11,8 @@ type NavItem = {
   wait?: number
   count?: string
   warn?: boolean
+  iconColor?: string
+  title?: string
 }
 
 export type SidebarCounts = Record<LibraryKind, number> & {
@@ -20,12 +22,14 @@ export type SidebarCounts = Record<LibraryKind, number> & {
   connectionWarning: boolean
   calendar?: boolean
   meetings?: number
+  meeting?: { state: 'live' | 'soon'; title: string }
 }
 
 function Row({ item, active, onSelect }: { item: NavItem; active: boolean; onSelect: (p: Page) => void }) {
   return (
     <button
       onClick={() => onSelect(item.id)}
+      title={item.title}
       style={{
         display: 'flex',
         alignItems: 'center',
@@ -41,7 +45,7 @@ function Row({ item, active, onSelect }: { item: NavItem; active: boolean; onSel
         width: '100%'
       }}
     >
-      <Icon name={item.icon} color={active ? 'var(--tx)' : 'var(--tx3)'} />
+      <Icon name={item.icon} color={item.iconColor ?? (active ? 'var(--tx)' : 'var(--tx3)')} />
       <span style={{ flex: 1, whiteSpace: 'nowrap' }}>{item.label}</span>
       {!!item.wait && (
         <span
@@ -149,7 +153,19 @@ export function Sidebar({
     { id: 'sessions', icon: 'forum', label: 'Sessions', keyHint: '⌘1', wait: counts.waiting },
     { id: 'jira', icon: 'task_alt', label: 'Jira tasks', keyHint: '⌘2', count: String(counts.jira) },
     { id: 'prs', icon: 'merge', label: 'Pull requests', keyHint: '⌘3', count: String(counts.prs) },
-    ...(counts.calendar ? [{ id: 'calendar' as const, icon: 'calendar_month', label: 'Calendar', keyHint: '', count: String(counts.meetings ?? 0) }] : [])
+    ...(counts.calendar
+      ? [
+          {
+            id: 'calendar' as const,
+            icon: counts.meeting?.state === 'live' ? 'videocam' : counts.meeting?.state === 'soon' ? 'notifications_active' : 'calendar_month',
+            iconColor: counts.meeting?.state === 'live' ? 'var(--ok)' : counts.meeting?.state === 'soon' ? 'var(--wait)' : undefined,
+            title: counts.meeting?.title,
+            label: 'Calendar',
+            keyHint: '',
+            count: String(counts.meetings ?? 0)
+          }
+        ]
+      : [])
   ]
   const config: NavItem[] = [
     { id: 'instructions', icon: 'description', label: 'CLAUDE.md', keyHint: '⌘4', count: String(counts.instructions) },
