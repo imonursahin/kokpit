@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
+import type { CalendarEvent } from '@shared/integrations'
 import { LIBRARY_KINDS, type LibraryKind } from '@shared/library'
 
-export type ConfigCounts = Record<LibraryKind, number> & { jira: number; prs: number | null; connectionWarning: boolean }
+export type ConfigCounts = Record<LibraryKind, number> & { jira: number; prs: number | null; connectionWarning: boolean; calendar: boolean; meetings: number }
 
 const MOCK: ConfigCounts = {
   instructions: 5,
@@ -13,7 +14,9 @@ const MOCK: ConfigCounts = {
   memory: 0,
   jira: 8,
   prs: 3,
-  connectionWarning: true
+  connectionWarning: true,
+  calendar: false,
+  meetings: 0
 }
 
 const EMPTY: ConfigCounts = {
@@ -26,7 +29,13 @@ const EMPTY: ConfigCounts = {
   memory: 0,
   jira: 0,
   prs: null,
-  connectionWarning: false
+  connectionWarning: false,
+  calendar: false,
+  meetings: 0
+}
+
+export function meetingsLeft(events: CalendarEvent[], nowMs: number): number {
+  return events.filter((e) => !e.allDay && e.response !== 'declined' && Date.parse(e.end) > nowMs).length
 }
 
 export function useConfigCounts(page: string, refreshMinutes = 1, includeDraftReviews = true): ConfigCounts {
@@ -48,14 +57,19 @@ export function useConfigCounts(page: string, refreshMinutes = 1, includeDraftRe
       api.library.list(),
       api.integrations.status(),
       api.integrations.jiraIssues(),
-      api.integrations.myPullRequestCounts()
-    ]).then(([lib, conn, jira, prs]) => {
+      api.integrations.myPullRequestCounts(),
+      api.integrations.calendarEvents('day')
+    ]).then(([lib, conn, jira, prs, today]) => {
       if (!alive) return
       setCounts((prev) => {
         const next = { ...prev }
         if (lib.status === 'fulfilled')
           for (const kind of LIBRARY_KINDS) if (kind !== 'mcp') next[kind] = lib.value.entries.filter((e) => e.kind === kind && !(kind === 'memory' && e.name === 'MEMORY.md')).length
-        if (conn.status === 'fulfilled') next.connectionWarning = conn.value.some((c) => c.status !== 'connected')
+        if (conn.status === 'fulfilled') {
+          next.connectionWarning = conn.value.some((c) => c.status === 'expired' || (c.status === 'disconnected' && c.id !== 'google'))
+          next.calendar = conn.value.some((c) => c.id === 'google' && c.status !== 'disconnected')
+        }
+        if (today.status === 'fulfilled') next.meetings = meetingsLeft(today.value, Date.now())
         if (jira.status === 'fulfilled') next.jira = jira.value.filter((i) => i.statusCategory !== 'done').length
         if (prs.status === 'fulfilled') next.prs = prs.value.mine + prs.value.reviews
         return next

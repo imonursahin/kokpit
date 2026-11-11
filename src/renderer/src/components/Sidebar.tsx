@@ -18,6 +18,8 @@ export type SidebarCounts = Record<LibraryKind, number> & {
   jira: number
   prs: number
   connectionWarning: boolean
+  calendar?: boolean
+  meetings?: number
 }
 
 function Row({ item, active, onSelect }: { item: NavItem; active: boolean; onSelect: (p: Page) => void }) {
@@ -146,7 +148,8 @@ export function Sidebar({
     { id: 'overview', icon: 'space_dashboard', label: 'Overview', keyHint: '' },
     { id: 'sessions', icon: 'forum', label: 'Sessions', keyHint: '⌘1', wait: counts.waiting },
     { id: 'jira', icon: 'task_alt', label: 'Jira tasks', keyHint: '⌘2', count: String(counts.jira) },
-    { id: 'prs', icon: 'merge', label: 'Pull requests', keyHint: '⌘3', count: String(counts.prs) }
+    { id: 'prs', icon: 'merge', label: 'Pull requests', keyHint: '⌘3', count: String(counts.prs) },
+    ...(counts.calendar ? [{ id: 'calendar' as const, icon: 'calendar_month', label: 'Calendar', keyHint: '', count: String(counts.meetings ?? 0) }] : [])
   ]
   const config: NavItem[] = [
     { id: 'instructions', icon: 'description', label: 'CLAUDE.md', keyHint: '⌘4', count: String(counts.instructions) },

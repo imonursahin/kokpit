@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type InputHTMLAttributes } from 'react'
-import type { ConnectionId, ConnectionInfo, GithubConnectInput, JiraConnectInput } from '@shared/integrations'
+import type { ConnectionId, ConnectionInfo, GithubConnectInput, GoogleConnectInput, JiraConnectInput } from '@shared/integrations'
 import { relativeTime } from '@shared/time'
 import { Status } from '@/components/Status'
 import { PrimaryButton, SecondaryButton } from '@/components/primitives'
@@ -9,10 +9,12 @@ import { MOCK_CONNECTIONS, type Connection, type ConnectionDetail, type Connecti
 const ACTION = { height: 32, borderRadius: 7, fontSize: 12.5 } as const
 
 const API_TOKEN_URL = 'https://id.atlassian.com/manage-profile/security/api-tokens'
+const GOOGLE_CLIENTS_URL = 'https://console.cloud.google.com/apis/credentials'
 
 type Actions = {
   connectJira: (input: JiraConnectInput) => Promise<void>
   connectGithub: (input: GithubConnectInput) => Promise<void>
+  connectGoogle: (input: GoogleConnectInput) => Promise<void>
   disconnect: () => Promise<void>
 }
 
@@ -21,7 +23,12 @@ type Run = (fn: () => Promise<void>) => void
 function toConnection(i: ConnectionInfo, nowMs: number): Connection {
   const base = MOCK_CONNECTIONS.find((m) => m.id === i.id)
   const details: ConnectionDetail[] =
-    i.id === 'github'
+    i.id === 'google'
+      ? [
+          { label: 'Calendar', value: i.account, mono: true },
+          { label: 'Access', value: i.site }
+        ]
+      : i.id === 'github'
       ? [
           { label: 'Account', value: i.account ? `@${i.account}` : '', mono: true },
           { label: 'Auth', value: i.site }
@@ -137,6 +144,39 @@ function GithubForm({ busy, run, connect }: { busy: boolean; run: Run; connect: 
         </form>
       )}
     </div>
+  )
+}
+
+function GoogleForm({ busy, run, connect }: { busy: boolean; run: Run; connect: Actions['connectGoogle'] }) {
+  const [clientId, setClientId] = useState('')
+  const [clientSecret, setClientSecret] = useState('')
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault()
+        run(async () => {
+          if (!clientId.trim() || !clientSecret.trim()) throw new Error('Paste the client ID and the client secret.')
+          await connect({ clientId: clientId.trim(), clientSecret: clientSecret.trim() })
+        })
+      }}
+      style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
+    >
+      <div style={{ fontSize: 12.5, color: 'var(--tx2)', lineHeight: 1.55 }}>
+        In Google Cloud, turn on the Google Calendar API and create an OAuth client of type Desktop app. Paste its ID and secret here, then sign in with
+        Google in your browser. Kokpit only asks to read your events.
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 12 }}>
+        <Input autoFocus label="Client ID" placeholder="…apps.googleusercontent.com" value={clientId} onChange={(e) => setClientId(e.target.value)} />
+        <Input label="Client secret" type="password" value={clientSecret} onChange={(e) => setClientSecret(e.target.value)} />
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <a href={GOOGLE_CLIENTS_URL} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--tx2)' }}>
+          Open Google Cloud credentials
+        </a>
+        <span style={{ flex: 1 }} />
+        <PrimaryButton style={ACTION}>{busy ? 'Waiting for Google…' : 'Sign in with Google'}</PrimaryButton>
+      </div>
+    </form>
   )
 }
 
@@ -257,6 +297,8 @@ function ConnectionCard({ c, onSet, actions }: { c: Connection; onSet?: (status:
         <div style={{ padding: '14px 18px 16px', borderTop: '1px solid var(--line-soft)' }}>
           {c.id === 'jira' ? (
             <JiraForm name={c.name} busy={busy} run={run} connect={actions.connectJira} />
+          ) : c.id === 'google' ? (
+            <GoogleForm busy={busy} run={run} connect={actions.connectGoogle} />
           ) : (
             <GithubForm busy={busy} run={run} connect={actions.connectGithub} />
           )}
@@ -324,6 +366,7 @@ export function ConnectionsPage() {
     api && {
       connectJira: (input) => api.integrations.connectJira(input).then(live.setList),
       connectGithub: (input) => api.integrations.connectGithub(input).then(live.setList),
+      connectGoogle: (input) => api.integrations.connectGoogle(input).then(live.setList),
       disconnect: () => api.integrations.disconnect(id).then(live.setList)
     }
 

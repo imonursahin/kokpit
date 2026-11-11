@@ -6,7 +6,8 @@ export const NOTIFY_EVENTS = [
   { id: 'sessionError', label: 'A session stopped with an error', hint: '' },
   { id: 'prChecksFailed', label: 'CI failed on your pull request', hint: '' },
   { id: 'prChangesRequested', label: 'Changes requested on your pull request', hint: '' },
-  { id: 'prReviewRequested', label: 'Someone asked for your review', hint: '' }
+  { id: 'prReviewRequested', label: 'Someone asked for your review', hint: '' },
+  { id: 'meetingSoon', label: 'A meeting is about to start', hint: '10, 5, 3 and 1 minute before, from Google Calendar' }
 ] as const
 
 export type NotifyEvent = (typeof NOTIFY_EVENTS)[number]['id']
@@ -52,7 +53,7 @@ export const DEFAULT_SETTINGS: KokpitSettings = {
   menuBar: true,
   sessionTags: [],
   sessionTagOf: {},
-  notify: { sessionWaiting: false, sessionDone: false, sessionError: false, prChecksFailed: false, prChangesRequested: false, prReviewRequested: false }
+  notify: { sessionWaiting: false, sessionDone: false, sessionError: false, prChecksFailed: false, prChangesRequested: false, prReviewRequested: false, meetingSoon: true }
 }
 
 export const MODEL_CHOICES: { id: string; label: string }[] = [

@@ -1,9 +1,9 @@
-import type { MyPullRequests } from '../shared/integrations'
+import type { CalendarEvent, MyPullRequests } from '../shared/integrations'
 import type { SessionIndexItem } from '../shared/sessionIndex'
 import type { NotifyEvent } from '../shared/settings'
 import type { SessionStatus } from '../shared/types'
 
-export type NoticeTarget = { page: 'session'; id: string } | { page: 'prs' | 'overview' }
+export type NoticeTarget = { page: 'session'; id: string } | { page: 'prs' | 'overview' | 'calendar' }
 export type Notice = { event: NotifyEvent; title: string; body: string; target: NoticeTarget }
 
 const short = (s: string, n = 90) => (s.length > n ? `${s.slice(0, n - 1)}…` : s)
@@ -43,6 +43,29 @@ export function prNotices(prev: MyPullRequests, next: MyPullRequests): Notice[] 
         body: short(`${p.author ? `@${p.author}: ` : ''}${p.title}`),
         target: { page: 'prs' }
       })
+  }
+  return out
+}
+
+export const MEETING_MINUTES = [10, 5, 3, 1] as const
+
+export type MeetingNotice = { key: string; title: string; body: string; url: string }
+
+export function meetingNotices(events: CalendarEvent[], nowMs: number, sent: Set<string>): MeetingNotice[] {
+  const out: MeetingNotice[] = []
+  for (const e of events) {
+    if (e.allDay || e.response === 'declined') continue
+    const start = Date.parse(e.start)
+    if (!Number.isFinite(start)) continue
+    const left = start - nowMs
+    for (const m of MEETING_MINUTES) {
+      if (left > m * 60_000 || left <= (m - 1) * 60_000) continue
+      const key = `${e.id}:${e.start}:${m}`
+      if (sent.has(key)) continue
+      sent.add(key)
+      const at = new Date(start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      out.push({ key, title: `Meeting in ${m} min · ${short(e.title, 60)}`, body: e.meetUrl ? `Starts at ${at}. Click to join.` : `Starts at ${at}.`, url: e.meetUrl || e.url })
+    }
   }
   return out
 }

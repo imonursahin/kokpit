@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import type { CreateLibraryEntry, ImportFile, ImportResult, LibraryEntry, LibraryListing } from '../shared/library'
-import type { ConnectionId, ConnectionInfo, GithubConnectInput, JiraConnectInput, JiraIssue, MyPullRequests, PullRequestInfo } from '../shared/integrations'
+import type { CalendarEvent, CalendarRange, ConnectionId, ConnectionInfo, GithubConnectInput, GoogleConnectInput, JiraConnectInput, JiraIssue, MyPullRequests, PullRequestInfo } from '../shared/integrations'
 import type { AskDecision, ImageInput, LiveSession, RunnerEvent, RunnerMode, ModelOption, RewindResult, SlashCommandInfo, StartSession, TurnSettings } from '../shared/runner'
 import type { SearchResponse } from '../shared/search'
 import type { AppInfo, DoctorCheck, KokpitSettings, PlanUsage, UpdateStatus } from '../shared/settings'
@@ -109,6 +109,8 @@ const api = {
     status: (): Promise<ConnectionInfo[]> => ipcRenderer.invoke('integrations:status'),
     connectJira: (input: JiraConnectInput): Promise<ConnectionInfo[]> => ipcRenderer.invoke('integrations:connectJira', input),
     connectGithub: (input: GithubConnectInput): Promise<ConnectionInfo[]> => ipcRenderer.invoke('integrations:connectGithub', input),
+    connectGoogle: (input: GoogleConnectInput): Promise<ConnectionInfo[]> => ipcRenderer.invoke('integrations:connectGoogle', input),
+    calendarEvents: (range: CalendarRange): Promise<CalendarEvent[]> => ipcRenderer.invoke('calendar:events', range),
     disconnect: (id: ConnectionId): Promise<ConnectionInfo[]> => ipcRenderer.invoke('integrations:disconnect', id),
     jiraIssues: (force?: boolean): Promise<JiraIssue[]> => ipcRenderer.invoke('jira:issues', force === true),
     jiraIssue: (key: string): Promise<JiraIssue | null> => ipcRenderer.invoke('jira:issue', key),

@@ -1,4 +1,5 @@
-import type { ConnectionId, ConnectionInfo, JiraIssue, MyPullRequests, PullRequestInfo } from '../../shared/integrations'
+import type { CalendarEvent, CalendarRange, ConnectionId, ConnectionInfo, GoogleConnectInput, JiraIssue, MyPullRequests, PullRequestInfo } from '../../shared/integrations'
+import { connectGoogle, fetchEvents, freshCreds, type GoogleCreds } from './google'
 import { connectGithub, myOpenPullRequests, pullRequestsByUrl, pullRequestsFor, refreshCliToken, type GithubCreds } from './github'
 import { HttpError } from './http'
 import { addComment, connectJira, getIssue, myIssues, type JiraCreds } from './jira'
@@ -6,10 +7,21 @@ import type { Secrets } from './secrets'
 
 type Health = { lastSync: string; expired: boolean; error: string }
 
+const NAMES: Record<ConnectionId, string> = { jira: 'Jira', github: 'GitHub', google: 'Google' }
+
+export function calendarRange(range: CalendarRange, now = new Date()): { from: Date; to: Date } {
+  const from = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  if (range === 'week') from.setDate(from.getDate() - ((from.getDay() + 6) % 7))
+  const to = new Date(from)
+  to.setDate(to.getDate() + (range === 'week' ? 7 : 1))
+  return { from, to }
+}
+
 export class Integrations {
   private health: Record<ConnectionId, Health> = {
     jira: { lastSync: '', expired: false, error: '' },
-    github: { lastSync: '', expired: false, error: '' }
+    github: { lastSync: '', expired: false, error: '' },
+    google: { lastSync: '', expired: false, error: '' }
   }
   private issuesCache: { at: number; issues: JiraIssue[] } | null = null
 
@@ -32,6 +44,7 @@ export class Integrations {
   async status(): Promise<ConnectionInfo[]> {
     const jira = await this.secrets.get<JiraCreds>('jira')
     const gh = await this.secrets.get<GithubCreds>('github')
+    const google = await this.secrets.get<GoogleCreds>('google')
     const info = (id: ConnectionId, creds: { account: string } | null, site: string, projects: string[] = []): ConnectionInfo => {
       const h = this.health[id]
       return {
@@ -42,11 +55,15 @@ export class Integrations {
         org: '',
         projects,
         lastSync: h.lastSync,
-        warning: creds && h.expired ? `${id === 'jira' ? 'Jira' : 'GitHub'} rejected the saved credentials. Reconnect to keep syncing.` : creds ? h.error : ''
+        warning: creds && h.expired ? `${NAMES[id]} rejected the saved credentials. Reconnect to keep syncing.` : creds ? h.error : ''
       }
     }
     const projects = [...new Set((this.issuesCache?.issues ?? []).map((i) => i.key.split('-')[0] ?? ''))].filter(Boolean)
-    return [info('github', gh, gh ? (gh.source === 'cli' ? 'GitHub CLI login' : 'Personal access token') : ''), info('jira', jira, jira?.site ?? '', projects)]
+    return [
+      info('github', gh, gh ? (gh.source === 'cli' ? 'GitHub CLI login' : 'Personal access token') : ''),
+      info('jira', jira, jira?.site ?? '', projects),
+      info('google', google, google ? 'Google sign-in · read-only' : '')
+    ]
   }
 
   async connectJira(input: unknown): Promise<ConnectionInfo[]> {
@@ -62,11 +79,49 @@ export class Integrations {
     return this.status()
   }
 
+  async connectGoogle(input: unknown, open: (url: string) => void): Promise<ConnectionInfo[]> {
+    const creds = await this.track('google', connectGoogle((input ?? {}) as GoogleConnectInput, open))
+    await this.secrets.set('google', creds)
+    this.events.clear()
+    return this.status()
+  }
+
+  private events = new Map<string, { at: number; events: CalendarEvent[] }>()
+
+  private async google(): Promise<GoogleCreds | null> {
+    const stored = await this.secrets.get<GoogleCreds>('google')
+    if (!stored) return null
+    const creds = await this.track('google', freshCreds(stored))
+    if (creds !== stored) await this.secrets.set('google', creds)
+    return creds
+  }
+
+  private async eventsBetween(key: string, from: Date, to: Date, maxAgeMs: number): Promise<CalendarEvent[]> {
+    const hit = this.events.get(key)
+    if (hit && Date.now() - hit.at < maxAgeMs) return hit.events
+    const creds = await this.google()
+    if (!creds) return []
+    const { events } = await this.track('google', fetchEvents(creds, from, to))
+    this.events.set(key, { at: Date.now(), events })
+    return events
+  }
+
+  calendar(range: unknown): Promise<CalendarEvent[]> {
+    if (range !== 'day' && range !== 'week') throw new Error('invalid range')
+    const { from, to } = calendarRange(range)
+    return this.eventsBetween(`${range}:${from.toISOString()}`, from, to, 90_000)
+  }
+
+  upcoming(nowMs = Date.now()): Promise<CalendarEvent[]> {
+    return this.eventsBetween('upcoming', new Date(nowMs - 60_000), new Date(nowMs + 30 * 60_000), 60_000)
+  }
+
   async disconnect(id: unknown): Promise<ConnectionInfo[]> {
-    if (id !== 'jira' && id !== 'github') throw new Error('unknown connection')
+    if (id !== 'jira' && id !== 'github' && id !== 'google') throw new Error('unknown connection')
     await this.secrets.set(id, null)
     this.health[id] = { lastSync: '', expired: false, error: '' }
     if (id === 'jira') this.issuesCache = null
+    if (id === 'google') this.events.clear()
     return this.status()
   }
 

@@ -12,6 +12,7 @@ import { RealSessionDetailPage, SessionDetailPage } from '@/pages/SessionDetailP
 import { useSessionDetail } from '@/data/useSessionDetail'
 import { LibraryPage } from '@/pages/LibraryPage'
 import { PullRequestsPage } from '@/pages/PullRequestsPage'
+import { CalendarPage } from '@/pages/CalendarPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 import { McpPage } from '@/pages/McpPage'
 import { EFFORT_CHOICES, type KokpitSettings } from '@shared/settings'
@@ -196,7 +197,7 @@ export function App() {
     () =>
       window.kokpit?.onNavigate((t) => {
         if (t.page === 'session' && t.id) open(t.id)
-        else if (t.page === 'prs' || t.page === 'overview') setPage(t.page)
+        else if (t.page === 'prs' || t.page === 'overview' || t.page === 'calendar') setPage(t.page)
         else if (t.page === 'about') openAboutSettings(setPage)
       }),
     [open]
@@ -307,6 +308,9 @@ export function App() {
       ) : (
         <Placeholder title="Pull requests" />
       )
+      break
+    case 'calendar':
+      main = <CalendarPage onConnect={() => setPage('connections')} />
       break
     case 'instructions':
     case 'skills':

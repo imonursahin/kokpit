@@ -37,6 +37,7 @@ const SECTIONS: { id: SectionId; icon: string; label: string; sub: string }[] = 
 
 const SESSION_EVENTS: NotifyEvent[] = ['sessionWaiting', 'sessionDone', 'sessionError']
 const PR_EVENTS: NotifyEvent[] = ['prChecksFailed', 'prChangesRequested', 'prReviewRequested']
+const MEETING_EVENTS: NotifyEvent[] = ['meetingSoon']
 
 function Group({ title, children }: { title?: string; children: ReactNode }) {
   return (
@@ -618,6 +619,7 @@ export function SettingsPage({
                 </Group>
                 <Group title="Sessions">{SESSION_EVENTS.map(eventRow)}</Group>
                 <Group title="Pull requests">{PR_EVENTS.map(eventRow)}</Group>
+                <Group title="Meetings">{MEETING_EVENTS.map(eventRow)}</Group>
               </>
             )}
 

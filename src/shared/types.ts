@@ -26,6 +26,7 @@ export type Page =
   | 'session'
   | 'jira'
   | 'prs'
+  | 'calendar'
   | 'instructions'
   | 'skills'
   | 'agents'

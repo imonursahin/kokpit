@@ -1,4 +1,4 @@
-export type ConnectionId = 'github' | 'jira'
+export type ConnectionId = 'github' | 'jira' | 'google'
 
 export type ConnectionInfo = {
   id: ConnectionId
@@ -43,3 +43,18 @@ export type MyPullRequests = { mine: PullRequestInfo[]; reviews: PullRequestInfo
 
 export type JiraConnectInput = { site: string; email: string; token: string }
 export type GithubConnectInput = { token?: string; useCli?: boolean }
+export type GoogleConnectInput = { clientId: string; clientSecret: string }
+
+export type CalendarRange = 'day' | 'week'
+
+export type CalendarEvent = {
+  id: string
+  title: string
+  start: string
+  end: string
+  allDay: boolean
+  meetUrl: string
+  url: string
+  location: string
+  response: 'accepted' | 'declined' | 'tentative' | 'needsAction'
+}

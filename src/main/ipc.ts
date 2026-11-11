@@ -8,7 +8,7 @@ import { promisify } from 'node:util'
 import { jiraKeyFrom, type SessionIndexItem } from '../shared/sessionIndex'
 import type { MyPullRequests } from '../shared/integrations'
 import type { SessionStatus } from '../shared/types'
-import { prNotices, sessionNotices, type Notice } from './notifier'
+import { meetingNotices, prNotices, sessionNotices, type Notice } from './notifier'
 import type { LibraryEntry, LibraryRepo } from '../shared/library'
 import { Library } from './library'
 import { Integrations } from './integrations'
@@ -357,6 +357,28 @@ export function registerIpc(
   ipcMain.handle('integrations:connectJira', (_e, input: unknown) => integrations.connectJira(input))
   ipcMain.handle('integrations:connectGithub', (_e, input: unknown) => integrations.connectGithub(input))
   ipcMain.handle('integrations:disconnect', (_e, id: unknown) => integrations.disconnect(id))
+  ipcMain.handle('integrations:connectGoogle', (_e, input: unknown) => integrations.connectGoogle(input, (url) => void shell.openExternal(url)))
+  ipcMain.handle('calendar:events', (_e, range: unknown) => integrations.calendar(range))
+  const meetingsSent = new Set<string>()
+  const meetingPoll = setInterval(() => {
+    void settings.get().then(async (s) => {
+      if (!s.notifyEnabled || !s.notify.meetingSoon || !Notification.isSupported()) return
+      const events = await integrations.upcoming().catch(() => [])
+      if (meetingsSent.size > 500) meetingsSent.clear()
+      for (const n of meetingNotices(events, Date.now(), meetingsSent)) {
+        const note = new Notification({ title: n.title, body: n.body })
+        note.on('click', () => {
+          if (n.url) return void shell.openExternal(n.url)
+          const w = opts.mainWindow?.()
+          if (!w) return
+          w.show()
+          w.focus()
+          w.webContents.send('app:navigate', { page: 'calendar' })
+        })
+        note.show()
+      }
+    })
+  }, 15_000)
   ipcMain.handle('jira:issues', (_e, force: unknown) => integrations.issues(force === true))
   ipcMain.handle('github:prs', (_e, key: unknown) => integrations.pullRequests(key))
   ipcMain.handle('jira:issue', (_e, key: unknown) => integrations.issue(key))
@@ -489,6 +511,7 @@ export function registerIpc(
     clearTimeout(updateFirst)
     clearInterval(updateTick)
     clearInterval(prPoll)
+    clearInterval(meetingPoll)
     clearTimeout(planFirst)
     ipcMain.removeListener('tray:unread', onUnread)
     clearInterval(planTick)
@@ -496,7 +519,7 @@ export function registerIpc(
     watcher?.close()
     ipcMain.removeHandler('sessions:list')
     ipcMain.removeHandler('sessions:detail')
-    for (const ch of ['library:list', 'library:save', 'library:create', 'library:import', 'library:delete', 'search:query', 'runner:list', 'runner:start', 'runner:send', 'runner:respond', 'runner:interrupt', 'runner:commands', 'runner:models', 'runner:cancelQueued', 'runner:rewindFiles', 'files:mention', 'shell:run', 'memory:append', 'runner:setMode', 'integrations:status', 'integrations:connectJira', 'integrations:connectGithub', 'integrations:disconnect', 'jira:issues', 'jira:issue', 'github:prs', 'app:user', 'changes:revert', 'github:prsByUrl', 'settings:get', 'settings:update', 'app:info', 'app:openFolder', 'app:keepAwake', 'app:doctor', 'app:planUsage', 'tray:refreshUsage', 'app:testNotification', 'sessions:rebuild', 'dialog:pickFiles', 'plan:save', 'jira:comment', 'github:mine', 'github:counts', 'sessions:rename', 'sessions:delete', 'sessions:subagent', 'sessions:workflow', 'sessions:taskOutput', 'runner:stopTask', 'mcp:status', 'mcp:remove', 'mcp:logout', 'mcp:add', 'term:mcpLogin', 'term:update', 'update:get', 'update:check', 'app:relaunch', 'term:write', 'term:resize', 'term:kill'])
+    for (const ch of ['library:list', 'library:save', 'library:create', 'library:import', 'library:delete', 'search:query', 'runner:list', 'runner:start', 'runner:send', 'runner:respond', 'runner:interrupt', 'runner:commands', 'runner:models', 'runner:cancelQueued', 'runner:rewindFiles', 'files:mention', 'shell:run', 'memory:append', 'runner:setMode', 'integrations:status', 'integrations:connectJira', 'integrations:connectGithub', 'integrations:connectGoogle', 'calendar:events', 'integrations:disconnect', 'jira:issues', 'jira:issue', 'github:prs', 'app:user', 'changes:revert', 'github:prsByUrl', 'settings:get', 'settings:update', 'app:info', 'app:openFolder', 'app:keepAwake', 'app:doctor', 'app:planUsage', 'tray:refreshUsage', 'app:testNotification', 'sessions:rebuild', 'dialog:pickFiles', 'plan:save', 'jira:comment', 'github:mine', 'github:counts', 'sessions:rename', 'sessions:delete', 'sessions:subagent', 'sessions:workflow', 'sessions:taskOutput', 'runner:stopTask', 'mcp:status', 'mcp:remove', 'mcp:logout', 'mcp:add', 'term:mcpLogin', 'term:update', 'update:get', 'update:check', 'app:relaunch', 'term:write', 'term:resize', 'term:kill'])
       ipcMain.removeHandler(ch)
     if (awakeId !== null) powerSaveBlocker.stop(awakeId)
     runner.dispose()

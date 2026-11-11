@@ -43,5 +43,15 @@ export const MOCK_CONNECTIONS: Connection[] = [
       { label: 'Projects', chips: ['PAY', 'WEB', 'OPS', 'NOT'] }
     ],
     lastSync: '2 minutes ago'
+  },
+  {
+    id: 'google',
+    name: 'Google Calendar',
+    icon: 'calendar_month',
+    description: 'Your meetings, and a reminder before each one starts',
+    status: 'disconnected',
+    warning: '',
+    details: [],
+    lastSync: 'never'
   }
 ]
