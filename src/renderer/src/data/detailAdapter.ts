@@ -94,7 +94,7 @@ export function toDetailView(data: SessionDetailData, nowMs: number): DetailView
       add: f.add,
       del: f.del,
       test: f.test,
-      included: !f.test,
+      included: false,
       active: i === 0
     })),
     diff: Object.fromEntries(data.files.map((f) => [f.path, f.lines])),

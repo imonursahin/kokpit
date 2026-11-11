@@ -216,3 +216,14 @@ textarea.bare::placeholder { color: var(--tx3) }
 }
 
 .settings-row + .settings-row { border-top: 1px solid var(--line-soft) }
+.panel-resizer:hover,
+.panel-resizer:focus-visible { background: var(--line); outline: none }
+.tok-keyword { color: var(--rev) }
+.tok-string, .tok-string2 { color: var(--ok) }
+.tok-number, .tok-bool, .tok-atom, .tok-literal, .tok-typeName, .tok-className, .tok-namespace { color: var(--wait-tx) }
+.tok-comment { color: var(--tx3); font-style: italic }
+.tok-variableName.tok-definition, .tok-propertyName.tok-definition, .tok-macroName, .tok-link, .tok-url { color: var(--run) }
+.tok-heading, .tok-strong { font-weight: 600 }
+.tok-emphasis { font-style: italic }
+.tok-meta { color: var(--tx2) }
+.tok-invalid { color: var(--err) }

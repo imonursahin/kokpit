@@ -10,6 +10,7 @@ import { Icon, KeyHint, Spinner } from '@/components/primitives'
 import { Status } from '@/components/Status'
 import { Markdown } from '@/components/Markdown'
 import { JiraChip, openJiraIssue, PrChip } from '@/components/LinkChips'
+import { diffSegments, type Segment } from '@/data/diffHighlight'
 import { redirectTarget } from '@shared/shellRedirect'
 import { TagPicker } from '@/components/TagChip'
 import { getDraft, getQueued, setDraft, setQueued, type QueuedMessage } from '@/data/drafts'
@@ -971,6 +972,71 @@ export function turnKeys(turns: Turn[]): [Turn, string][] {
   })
 }
 
+export const PANEL_MIN = 600
+const PANEL_RESERVE = 780
+
+export function clampPanelWidth(width: number, viewport: number): number {
+  return Math.round(Math.max(PANEL_MIN, Math.min(width, viewport - PANEL_RESERVE)))
+}
+
+function PanelResizer({ width, onWidth }: { width: number; onWidth: (w: number) => void }) {
+  const drag = useRef<{ x: number; w: number } | null>(null)
+  const set = (w: number) => onWidth(clampPanelWidth(w, window.innerWidth))
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize panel"
+      aria-valuenow={width}
+      aria-valuemin={PANEL_MIN}
+      tabIndex={0}
+      title="Drag to resize · double-click to reset"
+      onPointerDown={(e) => {
+        e.preventDefault()
+        e.currentTarget.setPointerCapture(e.pointerId)
+        drag.current = { x: e.clientX, w: width }
+      }}
+      onPointerMove={(e) => drag.current && set(drag.current.w + drag.current.x - e.clientX)}
+      onPointerUp={(e) => {
+        drag.current = null
+        e.currentTarget.releasePointerCapture(e.pointerId)
+      }}
+      onDoubleClick={() => set(PANEL_MIN)}
+      onKeyDown={(e) => {
+        if (e.key === 'ArrowLeft') set(width + 40)
+        else if (e.key === 'ArrowRight') set(width - 40)
+        else return
+        e.preventDefault()
+      }}
+      className="panel-resizer"
+      style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 6, cursor: 'col-resize', zIndex: 5 }}
+    />
+  )
+}
+
+export function reviewMessage(selected: string[], notes: Record<string, Record<string, string>>, diff: Record<string, DiffLine[]>): string {
+  const comments: string[] = []
+  const quiet: string[] = []
+  for (const path of selected) {
+    const lines = diff[path] ?? []
+    const m = Object.entries(notes[path] ?? {}).filter(([, t]) => t.trim())
+    if (!m.length) quiet.push(path)
+    for (const [key, t] of m) {
+      if (key === 'file') comments.push(`- ${path}: ${t}`)
+      else {
+        const l = lines[Number(key.slice(1))]
+        const at = l ? ` line ${l.n || l.o}${l.t.trim() ? ` (\`${l.t.trim().slice(0, 80)}\`)` : ''}` : ''
+        comments.push(`- ${path}${at}: ${t}`)
+      }
+    }
+  }
+  const parts = ['Review of your changes:']
+  if (comments.length) parts.push('Comments:', ...comments)
+  if (quiet.length) parts.push(`Looks good: ${quiet.join(', ')}`)
+  if (!selected.length) parts.push('Looks good, continue.')
+  return parts.join('\n')
+}
+
 export function unansweredPrompt(turns: Turn[]): number {
   const last = turns[turns.length - 1]
   const onlyHooks =
@@ -1352,7 +1418,7 @@ function CommentEditor({
   )
 }
 
-function DiffRow({ l, onLineClick, editor }: { l: DiffLine; onLineClick?: () => void; editor?: ReactNode }) {
+function DiffRow({ l, segs, onLineClick, editor }: { l: DiffLine; segs?: Segment[] | null; onLineClick?: () => void; editor?: ReactNode }) {
   return (
     <>
       <div
@@ -1382,7 +1448,7 @@ function DiffRow({ l, onLineClick, editor }: { l: DiffLine; onLineClick?: () => 
           {l.n}
         </span>
         <span style={{ color: SIGN_FG[l.sign], textAlign: 'center' }}>{l.sign}</span>
-        <span style={{ whiteSpace: 'pre' }}>{l.t}</span>
+        <span style={{ whiteSpace: 'pre' }}>{segs ? segs.map((s, i) => (s.cls ? <span key={i} className={s.cls}>{s.text}</span> : s.text)) : l.t}</span>
       </div>
       {l.comment && (
         <div
@@ -1465,6 +1531,7 @@ function ChangesPanel({
   const visible = testsOn ? files : files.filter((f) => !f.test)
   const hiddenTests = testsOn ? 0 : tests.length
   const active = visible.find((f) => f.active)
+  const segs = useMemo(() => diffSegments(active?.path ?? '', lines), [active?.path, lines])
 
   return (
     <>
@@ -1561,6 +1628,7 @@ function ChangesPanel({
                 <DiffRow
                   key={i}
                   l={l}
+                  segs={segs[i]}
                   onLineClick={onLineClick && l.sign !== '@' ? () => onLineClick(i) : undefined}
                   editor={lineEditor?.(i)}
                 />
@@ -1613,8 +1681,6 @@ function PlanPanel({
   onText,
   onApprove,
   onSave,
-  onAddToJira,
-  jiraLabel = 'Add to Jira task…',
   message
 }: {
   plan: Plan
@@ -1624,8 +1690,6 @@ function PlanPanel({
   onText: (t: string) => void
   onApprove: () => void
   onSave?: () => void
-  onAddToJira?: () => void
-  jiraLabel?: string
   message?: { tone: 'ok' | 'err'; text: string } | null
 }) {
   const listCode: CSSProperties = { color: 'var(--tx)' }
@@ -1767,9 +1831,6 @@ function PlanPanel({
             Edit
           </PanelButton>
         )}
-        <PanelButton icon="task_alt" hint="J" onClick={onAddToJira ?? (() => console.log('add plan to jira'))}>
-          {jiraLabel}
-        </PanelButton>
         <span style={{ flex: 1 }} />
         {message && (
           <span style={{ fontSize: 12, color: message.tone === 'err' ? 'var(--err)' : 'var(--ok)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={message.text}>
@@ -1816,7 +1877,6 @@ type LiveProps = {
   onRespond?: (requestId: string, decision: AskDecision, answers?: Record<string, string>, note?: string) => void
   onRevert?: (path: string) => Promise<string>
   onSavePlan?: (body: string) => Promise<void>
-  onAddToJira?: (body: string) => Promise<string>
   onAttach?: () => Promise<string[]>
   onRename?: (title: string) => Promise<void>
   onDelete?: () => Promise<void>
@@ -1850,7 +1910,6 @@ function Detail({
   onRespond,
   onRevert,
   onSavePlan,
-  onAddToJira,
   onAttach,
   onRename,
   draftKey,
@@ -1885,6 +1944,10 @@ function Detail({
   }
   const [tab, setTab] = useState<RightTab>(data.tab)
   const [panelOpen, setPanelOpen] = useState(true)
+  const [panelWidth, setPanelWidth] = useState(PANEL_MIN)
+  useEffect(() => {
+    if (panelOpen) setPanelWidth(PANEL_MIN)
+  }, [panelOpen])
   const [files, setFiles] = useState(data.files)
   const [diffCollapsed, setDiffCollapsed] = useState(false)
   const [planView, setPlanView] = useState<'edit' | 'preview'>('preview')
@@ -1934,7 +1997,6 @@ function Detail({
     })
   }
   const [planMsg, setPlanMsg] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null)
-  const [jiraArmed, setJiraArmed] = useState(false)
   const [running, setRunning] = useState(data.running)
   const [sendError, setSendError] = useState<string | null>(null)
   const sending = useRef(false)
@@ -1984,6 +2046,7 @@ function Detail({
 
   const saveNote = (path: string, key: string, t: string) => {
     setNotes((all) => ({ ...all, [path]: { ...(all[path] ?? {}), [key]: t } }))
+    setFiles((fs) => fs.map((f) => (f.path === path ? { ...f, included: true } : f)))
     setEditing(null)
   }
   const dropNote = (path: string, key: string) => {
@@ -2237,26 +2300,11 @@ function Detail({
   const errorLine = sendError ?? live?.lastError
   const blockingAsk = live?.pending.find((p) => p.toolName !== 'AskUserQuestion')
   const continueWith = () => {
-    const keep = files.filter((f) => f.included).map((f) => f.path)
-    const drop = files.filter((f) => !f.included).map((f) => f.path)
-    const parts: string[] = ['Review of your changes:']
-    if (keep.length) parts.push(`Keep: ${keep.join(', ')}`)
-    if (drop.length) parts.push(`Undo the changes in: ${drop.join(', ')}`)
-    const commentLines: string[] = []
-    for (const [path, m] of Object.entries(notes)) {
-      const lines = data.diff[path] ?? []
-      for (const [key, t] of Object.entries(m)) {
-        if (key === 'file') commentLines.push(`- ${path}: ${t}`)
-        else {
-          const l = lines[Number(key.slice(1))]
-          const at = l ? ` line ${l.n || l.o}${l.t.trim() ? ` (\`${l.t.trim().slice(0, 80)}\`)` : ''}` : ''
-          commentLines.push(`- ${path}${at}: ${t}`)
-        }
-      }
-    }
-    if (commentLines.length) parts.push('Comments:', ...commentLines)
-    if (!drop.length && !commentLines.length) parts.push('Looks good, continue.')
-    const message = parts.join('\n')
+    const message = reviewMessage(
+      files.filter((f) => f.included).map((f) => f.path),
+      notes,
+      data.diff
+    )
     if (!onSend) {
       console.log('continue', message)
       return
@@ -2311,18 +2359,6 @@ function Detail({
         setPlanMsg({ tone: 'ok', text: 'Plan saved' })
         setPlanView('preview')
       })
-      .catch((err: unknown) => alive.current && setPlanMsg({ tone: 'err', text: err instanceof Error ? err.message : String(err) }))
-  }
-  const addPlanToJira = () => {
-    if (!onAddToJira) return console.log('add plan to jira')
-    if (!jiraArmed) {
-      setJiraArmed(true)
-      window.setTimeout(() => alive.current && setJiraArmed(false), 5000)
-      return
-    }
-    setJiraArmed(false)
-    onAddToJira(planText)
-      .then(() => alive.current && setPlanMsg({ tone: 'ok', text: 'Added to Jira as a comment' }))
       .catch((err: unknown) => alive.current && setPlanMsg({ tone: 'err', text: err instanceof Error ? err.message : String(err) }))
   }
   const attach = () => {
@@ -2384,7 +2420,6 @@ function Detail({
         commentOnActive()
       }
       else if (k === 'e' && showPlan) setPlanView('edit')
-      else if (k === 'j' && showPlan) addPlanToJira()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -2708,7 +2743,7 @@ function Detail({
                   />
                 )}
                 <span style={{ flex: 1 }} />
-                <span style={{ fontSize: 11.5, color: 'var(--tx3)' }}>{sessionCwd && text.startsWith('!') ? '↵ run in the session folder' : blockingAsk ? '↵ deny and tell Claude what to do instead' : running ? 'Esc to interrupt' : '↵ send · ⇧↵ new line · ⇧⇥ mode'}</span>
+                <span style={{ fontSize: 11.5, color: 'var(--tx3)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{sessionCwd && text.startsWith('!') ? '↵ run in the session folder' : blockingAsk ? '↵ deny and tell Claude what to do instead' : running ? 'Esc to interrupt' : '↵ send · ⇧↵ new line · ⇧⇥ mode'}</span>
                 {running ? (
                   <button
                     onClick={stop}
@@ -2757,7 +2792,10 @@ function Detail({
         {panelOpen && (
           <aside
             style={{
-              width: 600,
+              position: 'relative',
+              width: panelWidth,
+              minWidth: PANEL_MIN,
+              maxWidth: `calc(100vw - ${PANEL_RESERVE}px)`,
               flexShrink: 0,
               borderLeft: '1px solid var(--line)',
               background: 'var(--panel)',
@@ -2767,6 +2805,7 @@ function Detail({
               overflow: 'hidden'
             }}
           >
+            <PanelResizer width={panelWidth} onWidth={setPanelWidth} />
             <div
               role="tablist"
               style={{
@@ -2841,8 +2880,6 @@ function Detail({
                   onText={setPlanText}
                   onApprove={approvePlan}
                   onSave={savePlan}
-                  onAddToJira={addPlanToJira}
-                  jiraLabel={jiraArmed ? 'Click again to post to Jira' : 'Add to Jira task…'}
                   message={planMsg}
                 />
               ) : (

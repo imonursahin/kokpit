@@ -434,11 +434,6 @@ export function App() {
             onSavePlan={async (body) => {
               await window.kokpit?.savePlan(id, body)
             }}
-            onAddToJira={(body) => {
-              const key = openItem?.jira
-              if (!key) return Promise.reject(new Error('This session has no Jira task'))
-              return window.kokpit?.integrations.addJiraComment(key, body) ?? Promise.reject(new Error('Not available'))
-            }}
             onStop={() => void runner.interrupt(id)}
             onRespond={(requestId, decision, answers, note) => void runner.respond(id, requestId, decision, note, answers)}
             onRevert={(path) => window.kokpit?.revertFile(id, path) ?? Promise.reject(new Error('Not available'))}

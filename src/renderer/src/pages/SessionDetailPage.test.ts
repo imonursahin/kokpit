@@ -83,3 +83,21 @@ test('background shells and subagents show only in the background list, not agai
   expect(runsInBackground({ kind: 'command', label: 'Ran', target: 'npm test', state: 'running' })).toBe(false)
   expect(runsInBackground({ kind: 'command', label: 'Ran', target: 'vite', state: 'done', meta: 'in background' })).toBe(false)
 })
+
+test('only the selected files go to Claude, with their comments', async () => {
+  const { reviewMessage } = await import('./SessionDetailPage')
+  const diff = { 'b.ts': [{ o: '', n: '', sign: '@', t: '@@' }, { o: 41, n: 42, sign: '+', t: '  const x = 1' }] } as never
+  expect(reviewMessage(['b.ts'], { 'b.ts': { L1: 'rename x' }, 'a.ts': { file: 'not selected' } }, diff)).toBe(
+    'Review of your changes:\nComments:\n- b.ts line 42 (`const x = 1`): rename x'
+  )
+  expect(reviewMessage(['a.ts', 'b.ts'], { 'b.ts': { file: 'split this' } }, diff)).toBe('Review of your changes:\nComments:\n- b.ts: split this\nLooks good: a.ts')
+  expect(reviewMessage([], {}, diff)).toBe('Review of your changes:\nLooks good, continue.')
+})
+
+test('the side panel can grow but never gets narrower than its default width', async () => {
+  const { clampPanelWidth, PANEL_MIN } = await import('./SessionDetailPage')
+  expect(clampPanelWidth(500, 1800)).toBe(PANEL_MIN)
+  expect(clampPanelWidth(900, 1800)).toBe(900)
+  expect(clampPanelWidth(1500, 1800)).toBe(1020)
+  expect(clampPanelWidth(900, 1000)).toBe(PANEL_MIN)
+})
