@@ -18,6 +18,7 @@ export type LibraryEntry = {
   uses: number
   readOnly: boolean
   format: LibraryFormat
+  parent?: string
 }
 
 export type LibraryRepo = { name: string; root: string; assistant?: boolean }

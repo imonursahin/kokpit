@@ -8,7 +8,7 @@ import type { LibraryEntry, LibraryFormat, LibraryKind, LibraryListing } from '@
 import { MOCK_LIBRARY, libraryPath, type LibraryItem, type LibrarySection } from '@/mock/library'
 
 type View = 'edit' | 'preview'
-type Item = LibraryItem & { draft: string; absPath?: string; readOnly?: boolean; format: LibraryFormat }
+type Item = LibraryItem & { draft: string; absPath?: string; readOnly?: boolean; format: LibraryFormat; parent?: string }
 type Section = Omit<LibrarySection, 'items'> & { items: Item[]; view: View }
 type Store = Record<LibraryKind, Section>
 type Load = { state: 'loading' } | { state: 'error'; error: string } | { state: 'ready'; home: string | null }
@@ -110,7 +110,8 @@ function toItem(e: LibraryEntry): Item {
     uses: e.uses,
     absPath: e.absPath,
     readOnly: e.readOnly,
-    format: e.format
+    format: e.format,
+    ...(e.parent ? { parent: e.parent } : {})
   }
 }
 
@@ -265,6 +266,72 @@ function Field({ label, hint, children }: { label: string; hint: ReactNode; chil
       <span style={{ fontSize: 12.5, fontWeight: 500 }}>{label}</span>
       {children}
       <span style={{ fontSize: 12, color: 'var(--tx3)' }}>{hint}</span>
+    </div>
+  )
+}
+
+function NewFileDialog({ skill, onCancel, onCreate }: { skill: string; onCancel: () => void; onCreate: (rel: string) => Promise<void> }) {
+  const [path, setPath] = useState('references/')
+  const [error, setError] = useState<string | null>(null)
+  const pending = useRef(false)
+  const alive = useAlive()
+  const submit = () => {
+    if (pending.current) return
+    const rel = path.trim()
+    if (!rel || rel.endsWith('/')) return setError('Add a file name, like references/notes.md')
+    pending.current = true
+    onCreate(/\.[a-z0-9]+$/i.test(rel) ? rel : `${rel}.md`)
+      .catch((err: unknown) => alive.current && setError(errorText(err)))
+      .finally(() => {
+        pending.current = false
+      })
+  }
+  return (
+    <div
+      onMouseDown={(e) => e.target === e.currentTarget && onCancel()}
+      style={{ position: 'fixed', inset: 0, zIndex: 50, background: 'var(--scrim)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', paddingTop: 140 }}
+    >
+      <div
+        role="dialog"
+        aria-modal
+        aria-label="New file in skill"
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') {
+            e.preventDefault()
+            onCancel()
+          } else if (e.key === 'Enter') {
+            e.preventDefault()
+            submit()
+          }
+        }}
+        style={{ width: 480, background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 14, boxShadow: 'var(--pop)', padding: 20, display: 'flex', flexDirection: 'column', gap: 12 }}
+      >
+        <span style={{ fontSize: 16, fontWeight: 600 }}>New file in {skill}</span>
+        <label style={{ display: 'flex', alignItems: 'center', height: 36, padding: '0 10px', borderRadius: 8, border: '1px solid var(--tx)', boxShadow: '0 0 0 3px var(--hover)', font: `13px/1 ${MONO}` }}>
+          <input
+            autoFocus
+            className="bare"
+            spellCheck={false}
+            value={path}
+            onChange={(e) => {
+              setPath(e.target.value)
+              setError(null)
+            }}
+            style={{ flex: 1, minWidth: 0 }}
+          />
+        </label>
+        <span style={{ fontSize: 12, color: error ? 'var(--err)' : 'var(--tx3)' }}>
+          {error ?? 'A path inside the skill folder. Folders are created for you. Without an extension it becomes .md.'}
+        </span>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+          <button onClick={onCancel} style={{ height: 32, padding: '0 12px', borderRadius: 7, fontSize: 12.5, fontWeight: 500, color: 'var(--tx2)' }}>
+            Cancel
+          </button>
+          <button onClick={submit} style={{ height: 32, padding: '0 14px', borderRadius: 7, fontSize: 12.5, fontWeight: 500, background: 'var(--tx)', color: 'var(--panel)' }}>
+            Create file
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -499,6 +566,7 @@ function Library({
 }) {
   const sel = section.items.find((it) => it.id === section.selected) ?? section.items[0]
   const [creating, setCreating] = useState(false)
+  const [addingFile, setAddingFile] = useState(false)
   const [cursor, setCursor] = useState<[number, number]>([1, 1])
   const [focusId, setFocusId] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<{ id: string; message: string } | null>(null)
@@ -551,10 +619,12 @@ function Library({
   const removeSelected = () => {
     if (!sel || deleting.current) return
     const id = sel.id
+    const parentOfDeleted = sel.parent
     const drop = () =>
       update((s) => {
-        const items = s.items.filter((it) => it.id !== id)
-        return { ...s, items, selected: s.selected === id ? (items[0]?.id ?? '') : s.selected }
+        const items = s.items.filter((it) => it.id !== id && it.parent !== id)
+        const back = items.find((it) => it.absPath === parentOfDeleted)?.id
+        return { ...s, items, selected: items.some((it) => it.id === s.selected) ? s.selected : (back ?? items.find((it) => !it.parent)?.id ?? '') }
       })
     if (!api || !sel.absPath) {
       drop()
@@ -599,6 +669,21 @@ function Library({
     setFocusId(it.id)
     setCreating(false)
   }
+  const skillOf = sel ? (sel.parent ?? (kind === 'skills' ? sel.absPath : undefined)) : undefined
+  const skillItem = section.items.find((it) => it.absPath === skillOf)
+  const createFile = async (rel: string) => {
+    if (!api || !skillOf) return
+    const entry = await api.createFile(skillOf, rel)
+    if (!alive.current) return
+    const it = toItem(entry)
+    update((s) => {
+      const after = s.items.reduce((at, x, i) => (x.absPath === skillOf || x.parent === skillOf ? i : at), -1)
+      const items = [...s.items.slice(0, after + 1), it, ...s.items.slice(after + 1)]
+      return { ...s, items, selected: it.id, view: 'edit' }
+    })
+    setFocusId(it.id)
+    setAddingFile(false)
+  }
   const createMcp = () => {
     if (mcpPending.current) return
     mcpPending.current = true
@@ -633,7 +718,7 @@ function Library({
   const exists = (slug: string) => section.items.some((it) => it.name === slug || it.name === fileName(kind, slug))
 
   useEffect(() => {
-    if (creating) return
+    if (creating || addingFile) return
     const onKey = (e: KeyboardEvent) => {
       if (!e.metaKey && !e.ctrlKey) return
       const k = e.key.toLowerCase()
@@ -646,7 +731,7 @@ function Library({
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [creating, save, toggle, startNew, format])
+  }, [creating, addingFile, save, toggle, startNew, format])
 
   const list = (
     <section
@@ -661,7 +746,7 @@ function Library({
     >
       <div className="drag" style={{ padding: '22px 16px 14px 20px', display: 'flex', alignItems: 'center', gap: 10 }}>
         <h1 style={{ margin: 0, fontSize: 20, fontWeight: 600, letterSpacing: '-.01em' }}>{section.title}</h1>
-        {load.state === 'ready' && <span style={{ fontSize: 12.5, color: 'var(--tx3)' }}>{section.items.length}</span>}
+        {load.state === 'ready' && <span style={{ fontSize: 12.5, color: 'var(--tx3)' }}>{section.items.filter((it) => !it.parent).length}</span>}
         <span style={{ flex: 1 }} />
         {uploadKind && (
           <>
@@ -777,6 +862,33 @@ function Library({
         )}
         {section.items.map((it) => {
           const on = it.id === sel?.id
+          if (it.parent && it.parent !== skillOf) return null
+          if (it.parent)
+            return (
+              <button
+                key={it.id}
+                className="menu-item"
+                onClick={() => select(it)}
+                title={it.path}
+                style={{
+                  flexShrink: 0,
+                  margin: '0 0 0 18px',
+                  padding: '6px 10px',
+                  borderRadius: 7,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  textAlign: 'left',
+                  borderLeft: '1px solid var(--line)',
+                  ...(on ? { background: 'var(--panel)', boxShadow: '0 0 0 1px var(--line)' } : {})
+                }}
+              >
+                <Icon name="description" size={15} color="var(--tx3)" />
+                <span style={{ font: `12.5px/1.2 ${MONO}`, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{it.name}</span>
+                {it.draft !== it.body && <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--wait)', flexShrink: 0 }} />}
+              </button>
+            )
+          const files = kind === 'skills' ? section.items.filter((x) => x.parent === it.absPath).length : 0
           return (
             <button
               key={it.id}
@@ -807,6 +919,12 @@ function Library({
                 {it.draft !== it.body && (
                   <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--wait)', flexShrink: 0 }} />
                 )}
+                {files > 0 && (
+                  <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11.5, color: 'var(--tx3)', flexShrink: 0 }}>
+                    <Icon name="folder" size={14} color="var(--tx3)" />
+                    {files}
+                  </span>
+                )}
               </div>
               {it.desc && (
                 <div style={{ fontSize: 12.5, color: 'var(--tx2)', lineHeight: 1.45, textWrap: 'pretty' }}>{it.desc}</div>
@@ -818,14 +936,11 @@ function Library({
     </section>
   )
 
-  const dialog = creating && (
-    <CreateDialog
-      kind={kind}
-      noun={section.noun}
-      exists={exists}
-      onCancel={() => setCreating(false)}
-      onCreate={create}
-    />
+  const dialog = (
+    <>
+      {creating && <CreateDialog kind={kind} noun={section.noun} exists={exists} onCancel={() => setCreating(false)} onCreate={create} />}
+      {addingFile && skillItem && <NewFileDialog skill={skillItem.name} onCancel={() => setAddingFile(false)} onCreate={createFile} />}
+    </>
   )
 
   if (!sel)
@@ -871,9 +986,9 @@ function Library({
             <div style={{ fontSize: 13, lineHeight: 1.55, color: 'var(--tx2)' }}>
               This permanently deletes{' '}
               <span className="selectable" style={{ font: `12px ${MONO}`, color: 'var(--tx)' }}>
-                {kind === 'skills' ? sel.path.replace(/\/SKILL\.md$/, '/') : sel.path}
+                {kind === 'skills' && !sel.parent ? sel.path.replace(/\/SKILL\.md$/, '/') : sel.path}
               </span>{' '}
-              from disk{kind === 'skills' ? ', with everything in the skill folder' : ''}. New sessions stop loading it. This can’t be undone.
+              from disk{kind === 'skills' && !sel.parent ? ', with everything in the skill folder' : ''}. New sessions stop loading it. This can’t be undone.
             </div>
             {deleteError && <div style={{ fontSize: 12.5, color: 'var(--err)' }}>{deleteError}</div>}
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>
@@ -940,6 +1055,16 @@ function Library({
           {!readOnly && (
             <>
               {format === 'md' && <span style={{ width: 1, height: 18, background: 'var(--line)' }} />}
+              {kind === 'skills' && api && skillOf && (
+                <button
+                  onClick={() => setAddingFile(true)}
+                  title={`Add a file to ${skillItem?.name ?? 'this skill'}`}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 30, padding: '0 10px 0 8px', borderRadius: 7, border: '1px solid var(--line)', fontSize: 12.5, fontWeight: 500, whiteSpace: 'nowrap', flexShrink: 0 }}
+                >
+                  <Icon name="note_add" size={16} />
+                  New file
+                </button>
+              )}
               {kind !== 'instructions' && (
               <button
                 onClick={() => {

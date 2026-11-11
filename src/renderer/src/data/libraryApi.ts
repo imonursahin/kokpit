@@ -4,6 +4,7 @@ export type LibraryApi = {
   list(): Promise<LibraryListing>
   save(absPath: string, body: string): Promise<LibraryEntry>
   create(input: CreateLibraryEntry): Promise<LibraryEntry>
+  createFile(skill: string, rel: string): Promise<LibraryEntry>
   remove(absPath: string): Promise<void>
   import(kind: 'skills' | 'agents' | 'commands', files: ImportFile[]): Promise<ImportResult>
 }

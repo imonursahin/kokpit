@@ -84,7 +84,7 @@ export function useConfigCounts(page: string, refreshMinutes = 1, includeDraftRe
       setCounts((prev) => {
         const next = { ...prev }
         if (lib.status === 'fulfilled')
-          for (const kind of LIBRARY_KINDS) if (kind !== 'mcp') next[kind] = lib.value.entries.filter((e) => e.kind === kind && !(kind === 'memory' && e.name === 'MEMORY.md')).length
+          for (const kind of LIBRARY_KINDS) if (kind !== 'mcp') next[kind] = lib.value.entries.filter((e) => e.kind === kind && !e.parent && !(kind === 'memory' && e.name === 'MEMORY.md')).length
         if (conn.status === 'fulfilled') {
           next.connectionWarning = conn.value.some((c) => c.status === 'expired' || (c.status === 'disconnected' && c.id !== 'google'))
           next.calendar = conn.value.some((c) => c.id === 'google' && c.status !== 'disconnected')

@@ -13,7 +13,7 @@ test('delete removes a skill folder and a file, and refuses unknown paths', asyn
   writeFileSync(join(home, 'agents', 'helper.md'), '---\nname: helper\n---\n')
   const lib = new Library()
   const { entries } = await lib.list(home, {})
-  expect(entries.map((e) => e.kind).sort()).toEqual(['agents', 'skills'])
+  expect(entries.filter((e) => !e.parent).map((e) => e.kind).sort()).toEqual(['agents', 'skills'])
   await lib.remove(join(home, 'skills', 'demo', 'SKILL.md'))
   expect(existsSync(join(home, 'skills', 'demo'))).toBe(false)
   await lib.remove(join(home, 'agents', 'helper.md'))
@@ -86,4 +86,40 @@ test('uploading md files adds new skills, agents and commands and skips the ones
   expect(commands.skipped).toEqual(['ship.md'])
 
   await expect(lib.import('hooks', [{ fileName: 'x.md', body: '' }], {})).rejects.toThrow('Only skills')
+})
+
+test('files inside a skill folder are listed under the skill and can be edited, created and deleted', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'kokpit-lib-'))
+  const skill = join(home, 'skills', 'company-workflow')
+  mkdirSync(join(skill, 'references'), { recursive: true })
+  mkdirSync(join(skill, '.git'), { recursive: true })
+  writeFileSync(join(skill, 'SKILL.md'), '---\nname: company-workflow\ndescription: Team rules\n---\n')
+  writeFileSync(join(skill, 'references', 'git.md'), '# Git\n\nBranch from develop.\n')
+  writeFileSync(join(skill, 'references', 'logo.png'), 'binary')
+  writeFileSync(join(skill, '.git', 'config.md'), 'hidden')
+  const lib = new Library()
+  const { entries } = await lib.list(home, { 'skill:kokpit:company-workflow': 3 })
+  expect(entries.map((e) => [e.name, e.parent ? 'child' : 'skill', e.uses])).toEqual([
+    ['company-workflow', 'skill', 3],
+    ['references/git.md', 'child', 0]
+  ])
+  const child = entries[1]!
+  expect(child.parent).toBe(join(skill, 'SKILL.md'))
+  expect(child.desc).toBe('Branch from develop.')
+
+  const saved = await lib.save(child.absPath, '# Git\n\nBranch from main.', {})
+  expect(saved.parent).toBe(join(skill, 'SKILL.md'))
+  expect(readFileSync(child.absPath, 'utf8')).toBe('# Git\n\nBranch from main.\n')
+
+  const made = await lib.createSkillFile(join(skill, 'SKILL.md'), 'references/pr-flow.md', {})
+  expect(made).toMatchObject({ name: 'references/pr-flow.md', parent: join(skill, 'SKILL.md'), format: 'md' })
+  expect(readFileSync(join(skill, 'references', 'pr-flow.md'), 'utf8')).toBe('# Pr flow\n\n')
+  await expect(lib.createSkillFile(join(skill, 'SKILL.md'), 'references/pr-flow.md', {})).rejects.toThrow('already exists')
+  await expect(lib.createSkillFile(join(skill, 'SKILL.md'), '../escape.md', {})).rejects.toThrow('Use a path like')
+  await expect(lib.createSkillFile(join(skill, 'SKILL.md'), 'SKILL.md', {})).rejects.toThrow('Use a path like')
+  await expect(lib.createSkillFile(child.absPath, 'x.md', {})).rejects.toThrow('Pick a skill first')
+
+  await lib.remove(made.absPath)
+  expect(existsSync(made.absPath)).toBe(false)
+  expect(existsSync(join(skill, 'SKILL.md'))).toBe(true)
 })

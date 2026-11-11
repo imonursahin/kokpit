@@ -338,6 +338,7 @@ export function registerIpc(
   ipcMain.handle('library:delete', (_e, absPath: unknown) => library.remove(absPath))
   ipcMain.handle('library:import', (_e, kind: unknown, files: unknown) => library.import(kind, files, store.usage()))
   ipcMain.handle('library:create', (_e, input: unknown) => library.create(input as never, store.usage()))
+  ipcMain.handle('library:createFile', (_e, skill: unknown, rel: unknown) => library.createSkillFile(skill, rel, store.usage()))
 
   let watcher: FSWatcher | null = null
   try {
@@ -527,7 +528,7 @@ export function registerIpc(
     watcher?.close()
     ipcMain.removeHandler('sessions:list')
     ipcMain.removeHandler('sessions:detail')
-    for (const ch of ['library:list', 'library:save', 'library:create', 'library:import', 'library:delete', 'search:query', 'runner:list', 'runner:start', 'runner:send', 'runner:respond', 'runner:interrupt', 'runner:commands', 'runner:models', 'runner:cancelQueued', 'runner:rewindFiles', 'files:mention', 'shell:run', 'memory:append', 'runner:setMode', 'integrations:status', 'integrations:connectJira', 'integrations:connectGithub', 'integrations:connectGoogle', 'calendar:events', 'integrations:disconnect', 'jira:issues', 'jira:issue', 'github:prs', 'app:user', 'changes:revert', 'github:prsByUrl', 'settings:get', 'settings:update', 'app:info', 'app:openFolder', 'app:keepAwake', 'app:doctor', 'app:planUsage', 'tray:refreshUsage', 'app:testNotification', 'sessions:rebuild', 'dialog:pickFiles', 'plan:save', 'jira:comment', 'github:mine', 'github:counts', 'sessions:rename', 'sessions:delete', 'sessions:subagent', 'sessions:workflow', 'sessions:taskOutput', 'runner:stopTask', 'mcp:status', 'mcp:remove', 'mcp:logout', 'mcp:add', 'term:mcpLogin', 'term:update', 'update:get', 'update:check', 'app:relaunch', 'term:write', 'term:resize', 'term:kill'])
+    for (const ch of ['library:list', 'library:save', 'library:create', 'library:createFile', 'library:import', 'library:delete', 'search:query', 'runner:list', 'runner:start', 'runner:send', 'runner:respond', 'runner:interrupt', 'runner:commands', 'runner:models', 'runner:cancelQueued', 'runner:rewindFiles', 'files:mention', 'shell:run', 'memory:append', 'runner:setMode', 'integrations:status', 'integrations:connectJira', 'integrations:connectGithub', 'integrations:connectGoogle', 'calendar:events', 'integrations:disconnect', 'jira:issues', 'jira:issue', 'github:prs', 'app:user', 'changes:revert', 'github:prsByUrl', 'settings:get', 'settings:update', 'app:info', 'app:openFolder', 'app:keepAwake', 'app:doctor', 'app:planUsage', 'tray:refreshUsage', 'app:testNotification', 'sessions:rebuild', 'dialog:pickFiles', 'plan:save', 'jira:comment', 'github:mine', 'github:counts', 'sessions:rename', 'sessions:delete', 'sessions:subagent', 'sessions:workflow', 'sessions:taskOutput', 'runner:stopTask', 'mcp:status', 'mcp:remove', 'mcp:logout', 'mcp:add', 'term:mcpLogin', 'term:update', 'update:get', 'update:check', 'app:relaunch', 'term:write', 'term:resize', 'term:kill'])
       ipcMain.removeHandler(ch)
     if (awakeId !== null) powerSaveBlocker.stop(awakeId)
     runner.dispose()

@@ -125,6 +125,7 @@ const api = {
     list: (): Promise<LibraryListing> => ipcRenderer.invoke('library:list'),
     save: (absPath: string, body: string): Promise<LibraryEntry> => ipcRenderer.invoke('library:save', absPath, body),
     create: (input: CreateLibraryEntry): Promise<LibraryEntry> => ipcRenderer.invoke('library:create', input),
+    createFile: (skill: string, rel: string): Promise<LibraryEntry> => ipcRenderer.invoke('library:createFile', skill, rel),
     remove: (absPath: string): Promise<void> => ipcRenderer.invoke('library:delete', absPath),
     import: (kind: 'skills' | 'agents' | 'commands', files: ImportFile[]): Promise<ImportResult> => ipcRenderer.invoke('library:import', kind, files)
   },

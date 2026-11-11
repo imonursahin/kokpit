@@ -12,7 +12,29 @@ const MEMORY_INDEX = 'MEMORY.md'
 const MAX_IMPORT = 50
 const MCP_FILE = '.mcp.json'
 
-type Source = { kind: LibraryKind; absPath: string; name: string }
+type Source = { kind: LibraryKind; absPath: string; name: string; parent?: string }
+
+const SKILL_FILE_EXT = new Set(['.md', '.json', '.txt', '.yaml', '.yml', ...SCRIPT_EXT])
+const MAX_SKILL_FILES = 200
+export const SKILL_FILE = /^(?:[A-Za-z0-9][\w.-]{0,63}\/){0,3}[A-Za-z0-9][\w.-]{0,63}\.(md|json|txt|yaml|yml|py|sh|js|mjs|ts|rb)$/
+
+async function skillFiles(dir: string, rel = '', depth = 0, out: string[] = []): Promise<string[]> {
+  if (depth > 3 || out.length >= MAX_SKILL_FILES) return out
+  let names: import('node:fs').Dirent[]
+  try {
+    names = await readdir(join(dir, rel), { withFileTypes: true })
+  } catch {
+    return out
+  }
+  for (const d of names.sort((a, b) => a.name.localeCompare(b.name))) {
+    if (d.name.startsWith('.') || d.name === 'node_modules') continue
+    const path = rel ? `${rel}/${d.name}` : d.name
+    if (d.isDirectory()) await skillFiles(dir, path, depth + 1, out)
+    else if (d.isFile() && path !== 'SKILL.md' && SKILL_FILE_EXT.has(extname(d.name))) out.push(path)
+    if (out.length >= MAX_SKILL_FILES) break
+  }
+  return out
+}
 
 function tilde(p: string): string {
   return p.startsWith(`${HOME}/`) ? `~/${p.slice(HOME.length + 1)}` : p
@@ -58,7 +80,9 @@ async function sources(home: string): Promise<Source[]> {
   }
   for (const d of await listDir(join(home, 'skills'))) {
     const file = join(home, 'skills', d, 'SKILL.md')
-    if (existsSync(file)) out.push({ kind: 'skills', absPath: file, name: d })
+    if (!existsSync(file)) continue
+    out.push({ kind: 'skills', absPath: file, name: d })
+    for (const rel of await skillFiles(join(home, 'skills', d))) out.push({ kind: 'skills', absPath: join(home, 'skills', d, rel), name: rel, parent: file })
   }
   for (const f of await listDir(join(home, 'agents'))) {
     if (f.endsWith('.md')) out.push({ kind: 'agents', absPath: join(home, 'agents', f), name: basename(f, '.md') })
@@ -122,8 +146,8 @@ async function toEntry(home: string, src: Source, uses: Record<string, number>):
     const st = await stat(src.absPath)
     if (st.size > MAX_BODY) return null
     const body = await readFile(src.absPath, 'utf8')
-    const name = src.kind === 'skills' || src.kind === 'agents' || src.kind === 'memory' ? frontmatter(body)['name'] || src.name : src.name
-    const useKey = src.kind === 'skills' ? `skill:kokpit:${name}` : src.kind === 'agents' ? `agent:kokpit:${name}` : ''
+    const name = !src.parent && (src.kind === 'skills' || src.kind === 'agents' || src.kind === 'memory') ? frontmatter(body)['name'] || src.name : src.name
+    const useKey = src.parent ? '' : src.kind === 'skills' ? `skill:kokpit:${name}` : src.kind === 'agents' ? `agent:kokpit:${name}` : ''
     return {
       id: src.absPath,
       kind: src.kind,
@@ -137,7 +161,8 @@ async function toEntry(home: string, src: Source, uses: Record<string, number>):
       savedAt: st.mtime.toISOString(),
       uses: useKey ? (uses[useKey] ?? 0) : 0,
       readOnly: false,
-      format: formatOf(src.absPath)
+      format: formatOf(src.absPath),
+      ...(src.parent ? { parent: src.parent } : {})
     }
   } catch {
     return null
@@ -231,6 +256,26 @@ export class Library {
       }
     }
     return result
+  }
+
+  async createSkillFile(skill: unknown, rel: unknown, uses: Record<string, number>): Promise<LibraryEntry> {
+    if (typeof skill !== 'string' || typeof rel !== 'string') throw new Error('invalid request')
+    const skillPath = resolve(skill)
+    const skillsDir = join(this.home, 'skills')
+    if (!this.known.has(skillPath) || basename(skillPath) !== 'SKILL.md' || dirname(dirname(skillPath)) !== skillsDir) throw new Error('Pick a skill first')
+    const path = rel.trim().replace(/^\/+/, '')
+    if (!SKILL_FILE.test(path) || path === 'SKILL.md') throw new Error('Use a path like references/notes.md: letters, digits, dots, dashes and up to 3 folders')
+    const dir = dirname(skillPath)
+    const file = resolve(dir, path)
+    if (!file.startsWith(dir + sep)) throw new Error('Path is outside the skill folder')
+    if (existsSync(file)) throw new Error(`${tilde(file)} already exists`)
+    await mkdir(dirname(file), { recursive: true })
+    const title = basename(path, extname(path)).replace(/[-_]/g, ' ').replace(/^./, (c) => c.toUpperCase())
+    await writeFile(file, extname(path) === '.md' ? `# ${title}\n\n` : '', { encoding: 'utf8', flag: 'wx' })
+    this.known.add(file)
+    const entry = await this.entryFor(file, uses)
+    if (!entry) throw new Error('Created, but the file could not be read back')
+    return entry
   }
 
   async create(input: CreateLibraryEntry, uses: Record<string, number>): Promise<LibraryEntry> {
