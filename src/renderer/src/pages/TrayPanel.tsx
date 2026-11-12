@@ -175,7 +175,7 @@ function MeetingRow({ e, g, nowMs, onJoin, onOpen }: { e: CalendarEvent; g: Glas
       onMouseLeave={() => setHover(false)}
       style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 8px', borderRadius: 8, background: when.tone === 'now' ? 'var(--ok-bg)' : hover ? g.hover : 'transparent' }}
     >
-      <button onClick={onOpen} style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 1, textAlign: 'left' }}>
+      <button onClick={onOpen} title={e.meetUrl ? 'Join the meeting' : 'Open in Kokpit Calendar'} style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 1, textAlign: 'left' }}>
         <span style={{ fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{e.title}</span>
         <span style={{ fontSize: 11.5, color: g.faint, whiteSpace: 'nowrap' }}>
           {clock(e.start)}–{clock(e.end)}
@@ -295,7 +295,7 @@ export function TrayPanel() {
                         g={g}
                         nowMs={Date.now()}
                         onJoin={() => void api?.tray.join(e.meetUrl)}
-                        onOpen={() => void api?.tray.open({ page: 'calendar' })}
+                        onOpen={() => void (e.meetUrl ? api?.tray.join(e.meetUrl) : api?.tray.open({ page: 'calendar' }))}
                       />
                     ))
                 ) : (

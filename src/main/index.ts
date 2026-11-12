@@ -85,7 +85,7 @@ void app.whenReady().then(async () => {
     onSessions: (items, showHeadless, menuBar) => tray.update(items, showHeadless, menuBar),
     onPlanUsage: (usage) => tray.setUsage(usage),
     onUnread: (list) => tray.setUnread(list),
-    onMeetings: (list) => tray.setMeetings(list),
+    onMeetings: (list, minutes) => tray.setMeetings(list, minutes),
     mainWindow: () => (main && !main.isDestroyed() ? main : null)
   })
   app.on('will-quit', () => {

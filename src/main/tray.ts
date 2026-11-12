@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, Menu, nativeImage, screen, shell, Tray } f
 import type { SessionIndexItem } from '../shared/sessionIndex'
 import type { PlanUsage } from '../shared/settings'
 import type { CalendarEvent } from '../shared/integrations'
+import { meetingSoon } from '../shared/meetings'
 import type { TraySession, TrayState, TrayTarget } from '../shared/tray'
 
 export type { TrayTarget }
@@ -62,9 +63,9 @@ export type TrayOptions = {
 
 const PANEL_WIDTH = 340
 
-type Tone = 'plain' | 'waiting' | 'unread'
+type Tone = 'plain' | 'waiting' | 'unread' | 'meeting'
 
-const TONES: Record<Exclude<Tone, 'plain'>, [number, number, number]> = { waiting: [245, 158, 11], unread: [59, 130, 246] }
+const TONES: Record<Exclude<Tone, 'plain'>, [number, number, number]> = { waiting: [245, 158, 11], unread: [59, 130, 246], meeting: [34, 197, 94] }
 
 function trayIcon(tone: Tone): Electron.NativeImage {
   const image = nativeImage.createFromBitmap(gaugeBitmap(36, tone === 'plain' ? undefined : TONES[tone]), { width: 36, height: 36, scaleFactor: 2 })
@@ -79,6 +80,7 @@ export class KokpitTray {
   private usage: PlanUsage | null = null
   private usageAt = ''
   private meetings: CalendarEvent[] | null = null
+  private reminderMinutes = 5
   private unread: { id: string; title: string }[] = []
   private last: { items: SessionIndexItem[]; showHeadless: boolean } | null = null
   private hiddenAt = 0
@@ -110,9 +112,9 @@ export class KokpitTray {
     this.refresh()
   }
 
-  setMeetings(list: CalendarEvent[] | null): void {
-    if (JSON.stringify(list) === JSON.stringify(this.meetings)) return
+  setMeetings(list: CalendarEvent[] | null, reminderMinutes: number): void {
     this.meetings = list
+    this.reminderMinutes = reminderMinutes
     this.refresh()
   }
 
@@ -171,8 +173,10 @@ export class KokpitTray {
         : s.unread.length
           ? `${s.unread.length} finished`
           : ''
-    const title = [weekly ? `${Math.round(weekly.utilization)}%` : '', activity].filter(Boolean).join(' · ')
-    const tone: Tone = s.waiting.length ? 'waiting' : s.unread.length ? 'unread' : 'plain'
+    const soon = this.meetings ? meetingSoon(this.meetings, Date.now(), this.reminderMinutes) : undefined
+    const meeting = soon ? `${soon.event.title.length > 22 ? `${soon.event.title.slice(0, 21)}…` : soon.event.title} · ${soon.minutes}m` : ''
+    const title = [meeting, weekly ? `${Math.round(weekly.utilization)}%` : '', activity].filter(Boolean).join(' · ')
+    const tone: Tone = soon ? 'meeting' : s.waiting.length ? 'waiting' : s.unread.length ? 'unread' : 'plain'
     if (tone !== this.tone) {
       this.tone = tone
       this.tray.setImage(trayIcon(tone))

@@ -76,3 +76,11 @@ test('an expired access token is refreshed, a revoked one asks to reconnect', as
   vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ error: 'invalid_grant', error_description: 'Token has been expired or revoked.' }), { status: 400 }))
   await expect(freshCreds(creds, 1_000)).rejects.toMatchObject({ status: 401 })
 })
+
+test('a meeting link written in the location or description is found too', async () => {
+  const { meetingLinkIn } = await import('./google')
+  expect(meetingLinkIn('Room 4', 'Join: https://us02web.zoom.us/j/123?pwd=a&amp;b=c<br>')).toBe('https://us02web.zoom.us/j/123?pwd=a&b=c')
+  expect(meetingLinkIn('https://teams.microsoft.com/l/meetup-join/19%3a')).toBe('https://teams.microsoft.com/l/meetup-join/19%3a')
+  expect(meetingLinkIn(undefined, 'see https://example.com/doc')).toBe('')
+  expect(toCalendarEvent({ id: 'z', start: { dateTime: '2026-11-12T14:00:00Z' }, description: 'Link: https://meet.google.com/abc-defg-hij' })?.meetUrl).toBe('https://meet.google.com/abc-defg-hij')
+})

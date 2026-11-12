@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import type { CalendarEvent } from '@shared/integrations'
-import { LIBRARY_KINDS, type LibraryKind } from '@shared/library'
+import { meetingState, type MeetingState } from '@shared/meetings'
 
-export type MeetingState = { state: 'live' | 'soon'; title: string }
+export { meetingState }
+import { LIBRARY_KINDS, type LibraryKind } from '@shared/library'
 
 export type ConfigCounts = Record<LibraryKind, number> & { jira: number; prs: number | null; connectionWarning: boolean; calendar: boolean; meetings: number; meeting?: MeetingState }
 
@@ -38,17 +39,6 @@ const EMPTY: ConfigCounts = {
 
 export function meetingsLeft(events: CalendarEvent[], nowMs: number): number {
   return events.filter((e) => !e.allDay && e.response !== 'declined' && Date.parse(e.end) > nowMs).length
-}
-
-export function meetingState(events: CalendarEvent[], nowMs: number, reminderMinutes: number): MeetingState | undefined {
-  const timed = events.filter((e) => !e.allDay && e.response !== 'declined')
-  const live = timed.find((e) => Date.parse(e.start) <= nowMs && nowMs < Date.parse(e.end))
-  if (live) return { state: 'live', title: `In a meeting · ${live.title}` }
-  const soon = timed
-    .map((e) => ({ e, left: Date.parse(e.start) - nowMs }))
-    .filter((x) => x.left > 0 && x.left <= reminderMinutes * 60_000)
-    .sort((a, b) => a.left - b.left)[0]
-  return soon ? { state: 'soon', title: `${soon.e.title} starts in ${Math.ceil(soon.left / 60_000)} min` } : undefined
 }
 
 export function useConfigCounts(page: string, refreshMinutes = 1, includeDraftReviews = true, reminderMinutes = 5): ConfigCounts {

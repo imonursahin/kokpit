@@ -42,7 +42,7 @@ export function registerIpc(
     onSessions?: (items: SessionIndexItem[], showHeadless: boolean, menuBar: boolean) => void
     onPlanUsage?: (usage: PlanUsage) => void
     onUnread?: (list: { id: string; title: string }[]) => void
-    onMeetings?: (list: CalendarEvent[] | null) => void
+    onMeetings?: (list: CalendarEvent[] | null, reminderMinutes: number) => void
     mainWindow?: () => BrowserWindow | null
   } = {}
 ): () => void {
@@ -368,9 +368,9 @@ export function registerIpc(
         void integrations
           .status()
           .then((list) => (list.some((c) => c.id === 'google' && c.status !== 'disconnected') ? integrations.calendar('day') : null))
-          .then((events) => opts.onMeetings?.(events))
+          .then((events) => opts.onMeetings?.(events, s.meetingReminderMinutes))
           .catch(() => undefined)
-      else opts.onMeetings?.(null)
+      else opts.onMeetings?.(null, s.meetingReminderMinutes)
       if (!s.notifyEnabled || !s.notify.meetingSoon || !Notification.isSupported()) return
       const events = await integrations.upcoming().catch(() => [])
       if (meetingsSent.size > 500) meetingsSent.clear()

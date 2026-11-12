@@ -108,6 +108,7 @@ type GoogleEvent = {
   htmlLink?: string
   hangoutLink?: string
   location?: string
+  description?: string
   start?: { dateTime?: string; date?: string }
   end?: { dateTime?: string; date?: string }
   attendees?: { self?: boolean; responseStatus?: string }[]
@@ -115,6 +116,15 @@ type GoogleEvent = {
 }
 
 const https = (u: unknown) => (typeof u === 'string' && /^https:\/\//i.test(u) ? u : '')
+const MEETING_LINK = /https:\/\/(?:meet\.google\.com|(?:[\w-]+\.)?zoom\.us|teams\.microsoft\.com|teams\.live\.com)\/[^\s"'<>)\]]+/i
+
+export function meetingLinkIn(...texts: (string | undefined)[]): string {
+  for (const t of texts) {
+    const m = t ? MEETING_LINK.exec(t.replace(/&amp;/g, '&')) : null
+    if (m) return m[0]
+  }
+  return ''
+}
 const RESPONSES = new Set(['accepted', 'declined', 'tentative', 'needsAction'])
 
 export function toCalendarEvent(e: GoogleEvent): CalendarEvent | null {
@@ -129,7 +139,10 @@ export function toCalendarEvent(e: GoogleEvent): CalendarEvent | null {
     start,
     end,
     allDay: !e.start?.dateTime,
-    meetUrl: https(e.hangoutLink) || https(e.conferenceData?.entryPoints?.find((p) => p.entryPointType === 'video')?.uri),
+    meetUrl:
+      https(e.hangoutLink) ||
+      https(e.conferenceData?.entryPoints?.find((p) => p.entryPointType === 'video')?.uri) ||
+      meetingLinkIn(e.location, e.description),
     url: https(e.htmlLink),
     location: e.location?.trim() ?? '',
     response: (RESPONSES.has(self) ? self : 'needsAction') as CalendarEvent['response']
