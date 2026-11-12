@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
+import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
 import type { CreateLibraryEntry, ImportFile, ImportResult, LibraryEntry, LibraryListing } from '../shared/library'
 import type { CalendarEvent, CalendarRange, ConnectionId, ConnectionInfo, GithubConnectInput, GoogleConnectInput, JiraConnectInput, JiraIssue, MyPullRequests, PullRequestInfo } from '../shared/integrations'
 import type { AskDecision, ImageInput, LiveSession, RunnerEvent, RunnerMode, ModelOption, RewindResult, SlashCommandInfo, StartSession, TurnSettings } from '../shared/runner'
@@ -10,6 +10,7 @@ import type { SessionDetailData, SubagentDetail, WorkflowRun } from '../shared/s
 import type { SessionIndexItem } from '../shared/sessionIndex'
 
 const api = {
+  pathForFile: (file: File): string => webUtils.getPathForFile(file),
   platform: process.platform,
   user: (): Promise<{ name: string; email: string }> => ipcRenderer.invoke('app:user'),
   info: (): Promise<AppInfo> => ipcRenderer.invoke('app:info'),

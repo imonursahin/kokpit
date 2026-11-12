@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, Menu, nativeImage, screen, shell, Tray } f
 import type { SessionIndexItem } from '../shared/sessionIndex'
 import type { PlanUsage } from '../shared/settings'
 import type { CalendarEvent } from '../shared/integrations'
-import { meetingSoon } from '../shared/meetings'
+import { menuBarMeeting } from '../shared/meetings'
 import type { TraySession, TrayState, TrayTarget } from '../shared/tray'
 
 export type { TrayTarget }
@@ -97,7 +97,7 @@ export class KokpitTray {
       }
     })
     ipcMain.handle('tray:join', (_e, url: unknown) => {
-      if (typeof url !== 'string' || !/^https:\/\//i.test(url) || !this.meetings?.some((m) => m.meetUrl === url)) return
+      if (typeof url !== 'string' || !/^https:\/\//i.test(url) || !this.meetings?.some((m) => m.meetUrl === url || m.url === url)) return
       this.panel?.hide()
       void shell.openExternal(url)
     })
@@ -173,10 +173,10 @@ export class KokpitTray {
         : s.unread.length
           ? `${s.unread.length} finished`
           : ''
-    const soon = this.meetings ? meetingSoon(this.meetings, Date.now(), this.reminderMinutes) : undefined
-    const meeting = soon ? `${soon.event.title.length > 22 ? `${soon.event.title.slice(0, 21)}…` : soon.event.title} · ${soon.minutes}m` : ''
+    const soon = this.meetings ? menuBarMeeting(this.meetings, Date.now(), this.reminderMinutes) : undefined
+    const meeting = soon ? `${soon.event.title.length > 22 ? `${soon.event.title.slice(0, 21)}…` : soon.event.title} · ${soon.live ? 'now' : `${soon.minutes}m`}` : ''
     const title = [meeting, weekly ? `${Math.round(weekly.utilization)}%` : '', activity].filter(Boolean).join(' · ')
-    const tone: Tone = soon ? 'meeting' : s.waiting.length ? 'waiting' : s.unread.length ? 'unread' : 'plain'
+    const tone: Tone = soon?.alert ? 'meeting' : s.waiting.length ? 'waiting' : s.unread.length ? 'unread' : 'plain'
     if (tone !== this.tone) {
       this.tone = tone
       this.tray.setImage(trayIcon(tone))

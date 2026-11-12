@@ -20,6 +20,7 @@ import { useSlashCommands } from '@/components/SlashCommands'
 import { useFileMentions } from '@/components/FileMentions'
 import { usePastedImages, withImageMarkers } from '@/components/PastedImages'
 import { toDetailView, toRich } from '@/data/detailAdapter'
+import { fileDropProps } from '@/data/dropPaths'
 import {
   DIFF_FILES,
   DIFF_LINES,
@@ -2648,6 +2649,10 @@ function Detail({
                   className="bare"
                   value={text}
                   onPaste={pasted.onPaste}
+                  {...fileDropProps((v) => {
+                    recall.current = null
+                    setText(v)
+                  })}
                   placeholder={data.placeholder}
                   rows={1}
                   onFocus={() => setInputFocused(true)}

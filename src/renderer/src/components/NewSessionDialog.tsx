@@ -11,6 +11,7 @@ import { usePastedImages, withImageMarkers } from './PastedImages'
 import type { SessionSummary } from '@shared/types'
 import { Status } from './Status'
 import { Icon, Kbd, PrimaryButton } from './primitives'
+import { fileDropProps } from '@/data/dropPaths'
 
 const MONO = "'Geist Mono',monospace"
 const OTHER = '__other__'
@@ -336,6 +337,10 @@ export function NewSessionDialog({
                 onFocus={() => setFocus('prompt')}
                 onBlur={() => setFocus(null)}
                 onPaste={pasted.onPaste}
+                {...fileDropProps((v) => {
+                  setError(null)
+                  setPrompt(v)
+                })}
                 onKeyDown={(e) => {
                   if (!slash.onKeyDown(e)) mention.onKeyDown(e)
                 }}
