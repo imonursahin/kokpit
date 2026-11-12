@@ -6,7 +6,7 @@ import type { DoctorCheck, PlanUsage, PlanWindow } from '@shared/settings'
 import { Icon, PrimaryButton } from '@/components/primitives'
 import { SessionRow } from '@/components/SessionRow'
 import { DoctorButton } from '@/components/DoctorButton'
-import { openAboutSettings, useUpdate } from '@/data/useUpdate'
+import { openAboutSettings, openSettingsSection, useUpdate } from '@/data/useUpdate'
 
 const DAY_MS = 86_400_000
 const cleanError = (m: string) => m.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
@@ -372,7 +372,7 @@ export function OverviewPage({
             Kokpit {update.latest} is available
           </button>
         )}
-        <DoctorButton checks={checks} onOpen={() => onGo('settings')} />
+        <DoctorButton checks={checks} onOpen={() => openSettingsSection('doctor', onGo)} />
         <PrimaryButton icon="add" hint="⌘N" onClick={onNew}>
           New session
         </PrimaryButton>

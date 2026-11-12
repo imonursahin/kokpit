@@ -20,7 +20,11 @@ export function useUpdate(): UpdateStatus | null {
   return status
 }
 
-export function openAboutSettings(go: (page: 'settings') => void) {
-  localStorage.setItem('kokpit.settingsSection', 'about')
+export function openSettingsSection(section: 'about' | 'doctor', go: (page: 'settings') => void) {
+  localStorage.setItem('kokpit.settingsSection', section)
   go('settings')
+}
+
+export function openAboutSettings(go: (page: 'settings') => void) {
+  openSettingsSection('about', go)
 }
