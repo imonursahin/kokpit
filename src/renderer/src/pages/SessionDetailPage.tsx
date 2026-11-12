@@ -6,7 +6,7 @@ import { relativeTime } from '@shared/time'
 import { ApprovalCard, type ApprovalRequest } from '@/components/ApprovalCard'
 import { QuestionCard } from '@/components/QuestionCard'
 import { DiffFileHeader, type DiffFile } from '@/components/DiffFileHeader'
-import { Icon, KeyHint, Spinner } from '@/components/primitives'
+import { Icon, KeyHint, Spinner, Tip } from '@/components/primitives'
 import { Status } from '@/components/Status'
 import { Markdown } from '@/components/Markdown'
 import { JiraChip, openJiraIssue, PrChip } from '@/components/LinkChips'
@@ -21,6 +21,10 @@ import { useFileMentions } from '@/components/FileMentions'
 import { usePastedImages, withImageMarkers } from '@/components/PastedImages'
 import { toDetailView, toRich } from '@/data/detailAdapter'
 import { fileDropProps } from '@/data/dropPaths'
+import { useRemoteSessions } from '@/data/useRemote'
+import { PhoneBanner, PhoneLink } from '@/components/PhoneLink'
+import { TerminalModal } from '@/components/TerminalModal'
+import type { RemoteSession } from '@shared/remote'
 import {
   DIFF_FILES,
   DIFF_LINES,
@@ -383,7 +387,9 @@ function Header({
   onDelete,
   tags,
   tagId,
-  onTag
+  onTag,
+  phone,
+  onPhone
 }: {
   h: SessionHeader
   linkPlaceholders: boolean
@@ -395,6 +401,8 @@ function Header({
   tags?: SessionTag[]
   tagId?: string
   onTag?: (tagId: string | null) => void
+  phone?: RemoteSession
+  onPhone?: () => void
 }) {
   const chip: CSSProperties = {
     display: 'flex',
@@ -433,6 +441,13 @@ function Header({
         <span style={{ fontSize: 12, color: 'var(--tx3)' }}>{h.elapsed}</span>
         <span style={{ font: `12.5px/1 ${MONO}`, color: 'var(--tx2)' }}>{h.cost}</span>
         <span style={{ width: 1, height: 18, background: 'var(--line)' }} />
+        {onPhone && (
+          <Tip label={phone ? 'Remote Control active · on your phone' : 'Continue on phone with Remote Control'} side="bottom">
+            <button aria-label={phone ? 'Remote Control active' : 'Continue on phone'} onClick={onPhone} style={{ display: 'flex', alignItems: 'center' }}>
+              <Icon name={phone ? 'mobile_friendly' : 'smartphone'} size={18} color={phone ? 'var(--ok)' : 'var(--tx3)'} />
+            </button>
+          </Tip>
+        )}
         {!panelOpen && <IconButton icon="right_panel_open" label="Show panel" onClick={onOpenPanel} />}
         {onDelete ? (
           <IconButton icon="delete" label="Delete session" onClick={onDelete} />
@@ -1888,6 +1903,9 @@ type LiveProps = {
   cwd?: string
   onLoadEarlier?: () => void
   partial?: string
+  phone?: RemoteSession
+  onPhone?: () => void
+  onBringBack?: () => void
 }
 
 const LIVE_STATUS: Record<LiveState, SessionStatus> = {
@@ -1923,6 +1941,9 @@ function Detail({
   defaultEffort,
   defaultMode,
   cwd,
+  phone,
+  onPhone,
+  onBringBack,
   onLoadEarlier,
   partial,
   onCancelQueued,
@@ -2454,6 +2475,8 @@ function Detail({
         tags={tags}
         tagId={tagId}
         onTag={onTag}
+        phone={phone}
+        onPhone={onPhone}
         onDelete={
           onDelete
             ? () => {
@@ -2630,6 +2653,9 @@ function Detail({
                 {errorLine}
               </div>
             )}
+            {phone ? (
+              <PhoneBanner url={phone.url} onShow={onPhone} onBringBack={onBringBack} />
+            ) : (
             <div
               style={{
                 border: '1px solid var(--line)',
@@ -2791,6 +2817,7 @@ function Detail({
                 )}
               </div>
             </div>
+            )}
           </div>
         </section>
 
@@ -2937,6 +2964,9 @@ export function RealSessionDetailPage({
   }, [base, live])
   const [agentId, setAgentId] = useState<string | null>(null)
   const closeAgent = useCallback(() => setAgentId(null), [])
+  const phone = useRemoteSessions().find((p) => p.sessionId === data.id)
+  const [phoneOpen, setPhoneOpen] = useState(false)
+  const api = window.kokpit
   return (
     <SubagentOpen.Provider value={setAgentId}>
       <Detail
@@ -2949,8 +2979,19 @@ export function RealSessionDetailPage({
         onStop={live ? onStop : undefined}
         onRespond={onRespond}
         onRevert={onRevert}
+        phone={phone}
+        onPhone={api ? () => setPhoneOpen(true) : undefined}
+        onBringBack={() => void api?.remote.stop(data.id)}
         {...rest}
       />
+      {phoneOpen && api && (
+        <TerminalModal
+          title="Continue on your phone"
+          start={(cols, rows) => api.remote.start(data.id, cols, rows)}
+          hint={<PhoneLink url={phone?.url ?? ''} />}
+          onClose={() => setPhoneOpen(false)}
+        />
+      )}
       {agentId?.startsWith('shell:') ? (
         <ShellOutputModal sessionId={data.id} taskId={agentId.slice(6)} command={shellCommand(data, agentId.slice(6))} onClose={closeAgent} />
       ) : agentId?.startsWith('workflow:') ? (

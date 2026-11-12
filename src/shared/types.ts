@@ -18,6 +18,7 @@ export type SessionSummary = {
   pinned?: boolean
   tag?: { name: string; color: string }
   askId?: string
+  onPhone?: boolean
 }
 
 export type Page =

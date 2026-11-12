@@ -62,7 +62,7 @@ export type Activity = { kind: 'thinking' | 'writing' | 'tool' | 'retry' | 'comp
 
 export type BackgroundTask = { id: string; kind: string; description: string; startedAt: string; toolUses?: number; lastTool?: string; ref?: string; toolUseId?: string; taskId?: string }
 
-export const claudeStillWorking = (background: BackgroundTask[] = []) => background.some((b) => b.kind !== 'Shell' && b.kind !== 'Monitor')
+export const claudeStillWorking = (background: BackgroundTask[] = []) => background.length > 0
 
 export type LiveSession = {
   sessionId: string

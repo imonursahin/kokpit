@@ -20,6 +20,7 @@ export type SessionIndexItem = {
   sub: string
   headless: boolean
   askId?: string
+  onPhone?: boolean
 }
 
 export type CliStatus = 'busy' | 'idle'

@@ -5,6 +5,7 @@ import type { AskDecision, ImageInput, LiveSession, RunnerEvent, RunnerMode, Mod
 import type { SearchResponse } from '../shared/search'
 import type { AppInfo, DoctorCheck, KokpitSettings, PlanUsage, UpdateStatus } from '../shared/settings'
 import type { TrayState, TrayTarget } from '../shared/tray'
+import type { RemoteSession } from '../shared/remote'
 import type { McpAddInput, McpServerInfo } from '../shared/mcp'
 import type { SessionDetailData, SubagentDetail, WorkflowRun } from '../shared/sessionDetail'
 import type { SessionIndexItem } from '../shared/sessionIndex'
@@ -72,6 +73,17 @@ const api = {
       const handler = (_e: IpcRendererEvent, ev: Parameters<typeof cb>[0]) => cb(ev)
       ipcRenderer.on('term:event', handler)
       return () => ipcRenderer.removeListener('term:event', handler)
+    }
+  },
+  remote: {
+    list: (): Promise<RemoteSession[]> => ipcRenderer.invoke('remote:list'),
+    start: (sessionId: string, cols: number, rows: number): Promise<{ id: string; backlog: string }> => ipcRenderer.invoke('remote:start', sessionId, cols, rows),
+    attach: (sessionId: string): Promise<{ id: string; backlog: string }> => ipcRenderer.invoke('remote:attach', sessionId),
+    stop: (sessionId: string): Promise<void> => ipcRenderer.invoke('remote:stop', sessionId),
+    onChanged: (cb: (list: RemoteSession[]) => void): (() => void) => {
+      const handler = (_e: IpcRendererEvent, list: RemoteSession[]) => cb(list)
+      ipcRenderer.on('remote:changed', handler)
+      return () => ipcRenderer.removeListener('remote:changed', handler)
     }
   },
   mcp: {

@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { readdir } from 'node:fs/promises'
+import { readdir, readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -51,16 +51,41 @@ async function claudeCli(exe: string): Promise<DoctorCheck> {
     : { id: 'claude', label: 'Claude Code', status: 'err', value: 'Not found', detail: `Could not run ${tilde(exe)}. Check Claude executable above.` }
 }
 
-async function claudeLogin(exe: string): Promise<DoctorCheck> {
-  const base = { id: 'login', label: 'Claude login' }
-  const out = await output(exe, ['auth', 'status', '--json'])
+type AuthStatus = { loggedIn?: boolean; authMethod?: string; email?: string; subscriptionType?: string }
+
+async function authStatus(exe: string): Promise<AuthStatus | null> {
   try {
-    const s = JSON.parse(out ?? '') as { loggedIn?: boolean; authMethod?: string; email?: string; subscriptionType?: string }
-    if (!s.loggedIn) return { ...base, status: 'err', value: 'Not logged in', detail: 'Run claude in a terminal and sign in.' }
-    return { ...base, status: 'ok', value: s.email || 'Logged in', detail: [s.authMethod, s.subscriptionType].filter(Boolean).join(' · ') }
+    return JSON.parse((await output(exe, ['auth', 'status', '--json'])) ?? '') as AuthStatus
   } catch {
-    return { ...base, status: 'warn', value: 'Unknown', detail: 'Could not read the login status.' }
+    return null
   }
+}
+
+function claudeLogin(s: AuthStatus | null): DoctorCheck {
+  const base = { id: 'login', label: 'Claude login' }
+  if (!s) return { ...base, status: 'warn', value: 'Unknown', detail: 'Could not read the login status.' }
+  if (!s.loggedIn) return { ...base, status: 'err', value: 'Not logged in', detail: 'Run claude in a terminal and sign in.' }
+  return { ...base, status: 'ok', value: s.email || 'Logged in', detail: [s.authMethod, s.subscriptionType].filter(Boolean).join(' · ') }
+}
+
+const MANAGED_SETTINGS = '/Library/Application Support/ClaudeCode/managed-settings.json'
+const USER_SETTINGS = join(HOME, '.claude', 'settings.json')
+
+async function remoteControlOff(file: string): Promise<boolean> {
+  try {
+    return (JSON.parse(await readFile(file, 'utf8')) as { disableRemoteControl?: unknown }).disableRemoteControl === true
+  } catch {
+    return false
+  }
+}
+
+export async function remoteControl(s: AuthStatus | null, files = { managed: MANAGED_SETTINGS, user: USER_SETTINGS }): Promise<DoctorCheck> {
+  const base = { id: 'remote', label: 'Remote Control' }
+  if (await remoteControlOff(files.managed)) return { ...base, status: 'warn', value: 'Turned off', detail: 'Your company settings turn off Remote Control, so you cannot continue sessions on your phone.' }
+  if (await remoteControlOff(files.user)) return { ...base, status: 'warn', value: 'Turned off', detail: 'disableRemoteControl is set in ~/.claude/settings.json.' }
+  if (!s?.loggedIn) return { ...base, status: 'warn', value: 'Unknown', detail: 'Sign in to Claude first.' }
+  if (s.authMethod !== 'claude.ai') return { ...base, status: 'warn', value: 'Needs a claude.ai login', detail: `You are signed in with ${s.authMethod ?? 'another method'}. Remote Control only works with a claude.ai account.` }
+  return { ...base, status: 'ok', value: 'Available', detail: 'Continue a session on your phone from its page.' }
 }
 
 async function kokpitFolder(home: string): Promise<DoctorCheck> {
@@ -94,10 +119,11 @@ function connection(list: ConnectionInfo[], id: 'github' | 'jira', label: string
 
 export async function runDoctor(ctx: DoctorContext): Promise<DoctorCheck[]> {
   const exe = ctx.executable || 'claude'
-  const connections = await ctx.connections().catch(() => [] as ConnectionInfo[])
+  const [connections, auth] = await Promise.all([ctx.connections().catch(() => [] as ConnectionInfo[]), authStatus(exe)])
   return Promise.all([
     claudeCli(exe),
-    claudeLogin(exe),
+    Promise.resolve(claudeLogin(auth)),
+    remoteControl(auth),
     kokpitFolder(ctx.home),
     memoryFolder(ctx.home),
     transcripts(),

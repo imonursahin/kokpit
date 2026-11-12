@@ -18,7 +18,8 @@ import { assertSessionId, deleteSessionTraces } from './sessions/delete'
 import { mcpAdd, mcpLogout, mcpRemove, mcpStatus, type McpContext } from './mcp'
 import { Runner } from './runner'
 import { Terminals } from './terminal'
-import { assistantHome, assistantPrompt, ensureAssistantHome } from './assistant'
+import { RemoteSessions } from './remote'
+import { assistantHome, assistantPrompt, ensureAssistantHome, memoryDir } from './assistant'
 import { SettingsStore } from './settings'
 import { runDoctor } from './doctor'
 import { planUsage } from './planUsage'
@@ -108,6 +109,7 @@ export function registerIpc(
     if (!existsSync(home)) return null
     return { home, prompt: await assistantPrompt(home) }
   })
+  let phoneIds = new Set<string>()
   const withLive = (items: SessionIndexItem[]): SessionIndexItem[] => {
     const live = new Map(runner.list().map((l) => [l.sessionId, l]))
     const known = new Set(items.map((i) => i.id))
@@ -135,7 +137,7 @@ export function registerIpc(
       }))
     const alive = readCliStatuses()
     return [...unsaved, ...items].map((item) => {
-      const i = item.headless && kokpitSessions.has(item.id) ? { ...item, headless: false } : item
+      const i = { ...(item.headless && kokpitSessions.has(item.id) ? { ...item, headless: false } : item), onPhone: phoneIds.has(item.id) || undefined }
       const l = live.get(i.id)
       if (!l) return (i.status === 'running' || i.status === 'waiting') && !alive.has(i.id) ? { ...i, status: 'done' } : i
       const bg = l.background?.[0]
@@ -253,7 +255,49 @@ export function registerIpc(
   ipcMain.handle('mcp:status', () => mcpStatus(mcpCtx()))
   ipcMain.handle('mcp:remove', (_e, name: unknown, scope: unknown, transport: unknown) => mcpRemove(mcpCtx(), name, scope, transport))
   const terminals = new Terminals((e) => {
+    remote.onTerminal(e)
     for (const win of BrowserWindow.getAllWindows()) win.webContents.send('term:event', e)
+  })
+  const remote = new RemoteSessions(
+    (termId) => terminals.kill(termId),
+    (list) => {
+      phoneIds = new Set(list.map((r) => r.sessionId))
+      for (const win of BrowserWindow.getAllWindows()) win.webContents.send('remote:changed', list)
+      void broadcast()
+    }
+  )
+  const PARENT_SESSION_ENV = ['CLAUDECODE', 'CLAUDE_CODE_CHILD_SESSION', 'CLAUDE_CODE_SESSION_ID', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_MESSAGING_SOCKET', 'CLAUDE_CODE_MESSAGING_TOKEN', 'CLAUDE_CODE_SESSION_ATTENDED', 'CLAUDE_PID', 'CLAUDE_AGENT_SDK_VERSION']
+  const PERMISSION_MODES = new Set(['default', 'acceptEdits', 'plan', 'auto', 'bypassPermissions'])
+  const notOnPhone = (id: unknown) => {
+    if (typeof id === 'string' && remote.has(id)) throw new Error('This session is on your phone. Bring it back to Kokpit first.')
+  }
+  ipcMain.handle('remote:list', () => remote.list())
+  ipcMain.handle('remote:attach', (_e, id: unknown) => remote.attach(assertSessionId(id)))
+  ipcMain.handle('remote:stop', (_e, id: unknown) => remote.stop(assertSessionId(id)))
+  ipcMain.handle('remote:start', async (_e, rawId: unknown, cols: unknown, rows: unknown) => {
+    const id = assertSessionId(rawId)
+    if (remote.has(id)) return remote.attach(id)
+    const live = runner.list().find((l) => l.sessionId === id)
+    if (live && live.state !== 'idle' && live.state !== 'error') throw new Error('Claude is still working in this session. Wait for it to finish or stop it first.')
+    if (live?.background?.length) throw new Error('A background task is still running in this session. Wait for it or stop it first.')
+    const item = withLive(store.items()).find((i) => i.id === id)
+    if (!item?.file) throw new Error('Send a first message, then continue the session on your phone.')
+    if (!live && item.status === 'running') throw new Error('This session is running in a terminal. Stop it there first.')
+    if (!existsSync(item.cwd)) throw new Error(`Folder not found: ${item.cwd}`)
+    const mode = live?.mode ?? item.mode
+    const args = [mcpCtx().executable || 'claude', '--resume', id, `--remote-control=${(item.title || 'Kokpit session').replace(/\s+/g, ' ').slice(0, 60)}`]
+    if (PERMISSION_MODES.has(mode)) args.push('--permission-mode', mode)
+    if (mode === 'bypassPermissions') args.push('--allow-dangerously-skip-permissions')
+    const env: NodeJS.ProcessEnv = { ...process.env }
+    for (const key of PARENT_SESSION_ENV) delete env[key]
+    if (existsSync(home)) {
+      const prompt = await assistantPrompt(home)
+      args.push('--plugin-dir', home)
+      if (prompt) args.push(`--append-system-prompt=${prompt}`)
+      env['CLAUDE_COWORK_MEMORY_PATH_OVERRIDE'] = memoryDir(home)
+    }
+    if (live) runner.close(id)
+    return remote.add(id, terminals.start(args, cols, rows, { cwd: item.cwd, env }))
   })
   ipcMain.handle('term:mcpLogin', (_e, name: unknown, cols: unknown, rows: unknown) => {
     if (typeof name !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(name)) throw new Error('Invalid server name')
@@ -499,8 +543,14 @@ export function registerIpc(
   })
 
   ipcMain.handle('runner:list', () => runner.list())
-  ipcMain.handle('runner:start', (_e, req: unknown) => runner.start(req as never))
-  ipcMain.handle('runner:send', (_e, id: unknown, text: unknown, images: unknown, settings: unknown) => runner.send(id, text, images, settings))
+  ipcMain.handle('runner:start', (_e, req: unknown) => {
+    notOnPhone((req as { resumeId?: unknown } | null)?.resumeId)
+    return runner.start(req as never)
+  })
+  ipcMain.handle('runner:send', (_e, id: unknown, text: unknown, images: unknown, settings: unknown) => {
+    notOnPhone(id)
+    return runner.send(id, text, images, settings)
+  })
   ipcMain.handle('runner:respond', (_e, id: unknown, requestId: unknown, decision: unknown, note: unknown, answers: unknown) =>
     runner.respond(id, requestId, decision, note, answers)
   )
@@ -528,7 +578,7 @@ export function registerIpc(
     watcher?.close()
     ipcMain.removeHandler('sessions:list')
     ipcMain.removeHandler('sessions:detail')
-    for (const ch of ['library:list', 'library:save', 'library:create', 'library:createFile', 'library:import', 'library:delete', 'search:query', 'runner:list', 'runner:start', 'runner:send', 'runner:respond', 'runner:interrupt', 'runner:commands', 'runner:models', 'runner:cancelQueued', 'runner:rewindFiles', 'files:mention', 'shell:run', 'memory:append', 'runner:setMode', 'integrations:status', 'integrations:connectJira', 'integrations:connectGithub', 'integrations:connectGoogle', 'calendar:events', 'integrations:disconnect', 'jira:issues', 'jira:issue', 'github:prs', 'app:user', 'changes:revert', 'github:prsByUrl', 'settings:get', 'settings:update', 'app:info', 'app:openFolder', 'app:keepAwake', 'app:doctor', 'app:planUsage', 'tray:refreshUsage', 'app:testNotification', 'sessions:rebuild', 'dialog:pickFiles', 'plan:save', 'jira:comment', 'github:mine', 'github:counts', 'sessions:rename', 'sessions:delete', 'sessions:subagent', 'sessions:workflow', 'sessions:taskOutput', 'runner:stopTask', 'mcp:status', 'mcp:remove', 'mcp:logout', 'mcp:add', 'term:mcpLogin', 'term:update', 'update:get', 'update:check', 'app:relaunch', 'term:write', 'term:resize', 'term:kill'])
+    for (const ch of ['library:list', 'library:save', 'library:create', 'library:createFile', 'library:import', 'library:delete', 'search:query', 'runner:list', 'runner:start', 'runner:send', 'runner:respond', 'runner:interrupt', 'runner:commands', 'runner:models', 'runner:cancelQueued', 'runner:rewindFiles', 'files:mention', 'shell:run', 'memory:append', 'runner:setMode', 'integrations:status', 'integrations:connectJira', 'integrations:connectGithub', 'integrations:connectGoogle', 'calendar:events', 'integrations:disconnect', 'jira:issues', 'jira:issue', 'github:prs', 'app:user', 'changes:revert', 'github:prsByUrl', 'settings:get', 'settings:update', 'app:info', 'app:openFolder', 'app:keepAwake', 'app:doctor', 'app:planUsage', 'tray:refreshUsage', 'app:testNotification', 'sessions:rebuild', 'dialog:pickFiles', 'plan:save', 'jira:comment', 'github:mine', 'github:counts', 'sessions:rename', 'sessions:delete', 'sessions:subagent', 'sessions:workflow', 'sessions:taskOutput', 'runner:stopTask', 'mcp:status', 'mcp:remove', 'mcp:logout', 'mcp:add', 'term:mcpLogin', 'term:update', 'update:get', 'update:check', 'app:relaunch', 'term:write', 'term:resize', 'term:kill', 'remote:list', 'remote:attach', 'remote:stop', 'remote:start'])
       ipcMain.removeHandler(ch)
     if (awakeId !== null) powerSaveBlocker.stop(awakeId)
     runner.dispose()

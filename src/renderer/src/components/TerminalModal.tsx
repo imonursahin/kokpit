@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
@@ -15,15 +15,16 @@ export function TerminalModal({
   hint = 'Your browser opens for the sign-in. If it asks you to paste a URL, paste it here and press Enter.'
 }: {
   title: string
-  start: (cols: number, rows: number) => Promise<string>
+  start: (cols: number, rows: number) => Promise<string | { id: string; backlog: string }>
   onClose: (exitCode: number | null) => void
-  hint?: string
+  hint?: ReactNode
 }) {
   const host = useRef<HTMLDivElement>(null)
   const idRef = useRef<string | null>(null)
   const startRef = useRef(start)
   startRef.current = start
   const [exitCode, setExitCode] = useState<number | null | undefined>(undefined)
+  const [attached, setAttached] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -65,14 +66,24 @@ export function TerminalModal({
     const input = term.onData((d) => {
       if (idRef.current) void api.terminal.write(idRef.current, d)
     })
+    let keep = false
     startRef.current(term.cols, term.rows)
-      .then((id) => {
+      .then((started) => {
+        keep = typeof started !== 'string'
+        const id = typeof started === 'string' ? started : started.id
         if (!alive) {
-          void api.terminal.kill(id)
+          if (!keep) void api.terminal.kill(id)
           return
         }
         idRef.current = id
-        for (const chunk of buffered.splice(0)) term.write(chunk)
+        if (typeof started === 'string') {
+          for (const chunk of buffered.splice(0)) term.write(chunk)
+        } else {
+          buffered.length = 0
+          setAttached(true)
+          term.write(started.backlog)
+          void api.terminal.resize(id, term.cols, term.rows)
+        }
       })
       .catch((err: Error) => setError(err.message))
 
@@ -87,7 +98,7 @@ export function TerminalModal({
       observer.disconnect()
       input.dispose()
       off()
-      if (idRef.current) void api.terminal.kill(idRef.current)
+      if (idRef.current && !keep) void api.terminal.kill(idRef.current)
       term.dispose()
     }
   }, [])
@@ -118,7 +129,7 @@ export function TerminalModal({
             onClick={close}
             style={{ height: 28, padding: '0 12px', borderRadius: 7, border: '1px solid var(--line)', fontSize: 12.5, fontWeight: 500 }}
           >
-            {running ? 'Cancel' : 'Close'}
+            {running ? (attached ? 'Hide' : 'Cancel') : 'Close'}
           </button>
         </div>
         {error && <div style={{ padding: '10px 16px', fontSize: 12.5, color: 'var(--err)' }}>{error}</div>}

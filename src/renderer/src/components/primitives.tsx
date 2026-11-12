@@ -1,4 +1,5 @@
-import type { CSSProperties, ReactNode } from 'react'
+import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 
 export function Icon({
   name,
@@ -185,5 +186,56 @@ export function OpenButton({ url }: { url: string }) {
       GitHub
       <Icon name="open_in_new" size={15} color="var(--tx2)" />
     </a>
+  )
+}
+
+export function Tip({ label, side = 'top', children }: { label: string; side?: 'top' | 'bottom'; children: ReactNode }) {
+  const [at, setAt] = useState<{ x: number; y: number } | null>(null)
+  const [left, setLeft] = useState<number | null>(null)
+  const tip = useRef<HTMLSpanElement>(null)
+  useLayoutEffect(() => {
+    const el = tip.current
+    if (!at || !el) return setLeft(null)
+    const w = el.offsetWidth
+    setLeft(Math.min(Math.max(8, at.x - w / 2), window.innerWidth - w - 8))
+  }, [at, label])
+  return (
+    <span
+      aria-label={label}
+      style={{ display: 'inline-flex', flexShrink: 0 }}
+      onMouseEnter={(e) => {
+        const r = e.currentTarget.getBoundingClientRect()
+        setAt({ x: r.left + r.width / 2, y: side === 'top' ? r.top - 6 : r.bottom + 6 })
+      }}
+      onMouseLeave={() => setAt(null)}
+    >
+      {children}
+      {at &&
+        createPortal(
+          <span
+            ref={tip}
+            role="tooltip"
+            style={{
+              position: 'fixed',
+              left: left ?? at.x,
+              top: at.y,
+              transform: side === 'top' ? 'translateY(-100%)' : undefined,
+              visibility: left === null ? 'hidden' : 'visible',
+              padding: '5px 8px',
+              borderRadius: 6,
+              background: 'var(--tx)',
+              color: 'var(--panel)',
+              fontSize: 12,
+              fontWeight: 500,
+              whiteSpace: 'nowrap',
+              pointerEvents: 'none',
+              zIndex: 100
+            }}
+          >
+            {label}
+          </span>,
+          document.body
+        )}
+    </span>
   )
 }

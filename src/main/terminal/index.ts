@@ -14,13 +14,13 @@ export class Terminals {
 
   constructor(private readonly emit: (e: TerminalEvent) => void) {}
 
-  start(command: string[], cols: unknown, rows: unknown): string {
+  start(command: string[], cols: unknown, rows: unknown, opts: { cwd?: string; env?: NodeJS.ProcessEnv } = {}): string {
     const id = randomUUID()
     const c = clamp(cols, 20, 400, 100)
     const r = clamp(rows, 5, 200, 30)
     const proc = spawn('python3', ['-u', '-c', PTY_BRIDGE, String(c), String(r), ...command], {
-      cwd: homedir(),
-      env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor', FORCE_COLOR: '1' }
+      cwd: opts.cwd ?? homedir(),
+      env: { ...(opts.env ?? process.env), TERM: 'xterm-256color', COLORTERM: 'truecolor', FORCE_COLOR: '1' }
     })
     this.procs.set(id, proc)
     const out = new StringDecoder('utf8')

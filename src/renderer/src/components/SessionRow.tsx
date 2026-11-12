@@ -1,5 +1,5 @@
 import type { SessionSummary } from '@shared/types'
-import { Dash, Icon, PrimaryButton, SecondaryButton } from './primitives'
+import { Dash, Icon, PrimaryButton, SecondaryButton, Tip } from './primitives'
 import { Status } from './Status'
 import { TagChip } from './TagChip'
 import { JiraChip, PrChip } from './LinkChips'
@@ -77,6 +77,11 @@ export function SessionRow({
             {s.title}
           </span>
           {s.tag && <TagChip name={s.tag.name} color={s.tag.color} />}
+          {s.onPhone && (
+            <Tip label="Remote Control active · on your phone">
+              <Icon name="mobile_friendly" size={15} color="var(--ok)" />
+            </Tip>
+          )}
           {onPin ? (
             <button
               className={`row-pin${s.pinned ? ' on' : ''}`}
