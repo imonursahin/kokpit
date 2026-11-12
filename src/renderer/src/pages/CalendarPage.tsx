@@ -25,6 +25,11 @@ export function groupByDay(events: CalendarEvent[]): { day: Date; events: Calend
     .map((g) => ({ ...g, events: g.events.sort((a, b) => Number(b.allDay) - Number(a.allDay) || startOf(a).getTime() - startOf(b).getTime()) }))
 }
 
+export function todayFirst<T extends { day: Date }>(groups: T[], nowMs: number): T[] {
+  const today = dayKey(new Date(nowMs))
+  return [...groups.filter((g) => dayKey(g.day) === today), ...groups.filter((g) => dayKey(g.day) !== today)]
+}
+
 export function whenLabel(e: CalendarEvent, nowMs: number): { text: string; tone: 'now' | 'soon' | 'past' | '' } {
   if (e.allDay) return { text: '', tone: '' }
   const start = Date.parse(e.start)
@@ -145,7 +150,7 @@ export function CalendarPage({ onConnect }: { onConnect: () => void }) {
     }
   }, [api, range, attempt])
 
-  const groups = events ? groupByDay(events) : []
+  const groups = events ? todayFirst(groupByDay(events), now) : []
   const tab = (id: CalendarRange, label: string) => (
     <button
       key={id}
@@ -200,8 +205,15 @@ export function CalendarPage({ onConnect }: { onConnect: () => void }) {
         ) : !groups.length ? (
           <div style={{ padding: '18px 28px', fontSize: 13, color: 'var(--tx3)' }}>{range === 'day' ? 'No meetings today.' : 'No meetings this week.'}</div>
         ) : (
-          groups.map((g) => (
-            <section key={g.day.toISOString()}>
+          groups.map((g, i) => (
+            <section
+              key={g.day.toISOString()}
+              style={
+                range === 'week' && i === 0 && dayKey(g.day) === dayKey(new Date(now))
+                  ? { position: 'sticky', top: 0, zIndex: 1, background: 'var(--bg)', borderBottom: '1px solid var(--line)' }
+                  : undefined
+              }
+            >
               <div style={{ padding: '14px 28px 6px', fontSize: 12, fontWeight: 600, color: 'var(--tx2)' }}>{dayTitle(g.day, now)}</div>
               {g.events.map((e) => (
                 <EventRow key={`${e.id}:${e.start}`} e={e} nowMs={now} />

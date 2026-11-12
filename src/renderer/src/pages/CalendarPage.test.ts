@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest'
 import { meetingState, meetingsLeft } from '@/data/useCounts'
-import { groupByDay, whenLabel } from './CalendarPage'
+import { groupByDay, todayFirst, whenLabel } from './CalendarPage'
 
 const ev = (id: string, start: string, end: string, extra: Record<string, unknown> = {}) => ({ id, title: id, start, end, allDay: false, meetUrl: '', url: '', location: '', response: 'accepted' as const, ...extra })
 
@@ -37,4 +37,11 @@ test('the sidebar marks a meeting in progress and one starting within the remind
   expect(meetingState([soon, later], now, 5)).toEqual({ state: 'soon', title: 'Review starts in 3 min' })
   expect(meetingState([soon, later], now, 1)).toBeUndefined()
   expect(meetingState([ev('No', '2026-11-11T09:55:00Z', '2026-11-11T10:15:00Z', { response: 'declined' })], now, 5)).toBeUndefined()
+})
+
+test('the week view lists today first, then the other days in order', () => {
+  const now = new Date(2026, 10, 12, 13, 0).getTime()
+  const day = (d: number) => ({ day: new Date(2026, 10, d) })
+  expect(todayFirst([day(9), day(11), day(12), day(13)], now).map((g) => g.day.getDate())).toEqual([12, 9, 11, 13])
+  expect(todayFirst([day(13), day(14)], now).map((g) => g.day.getDate())).toEqual([13, 14])
 })
