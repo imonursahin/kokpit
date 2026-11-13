@@ -361,3 +361,23 @@ test('the background task list follows the full set the SDK reports, so a missed
   expect(tasks.get('a').startedAt).toBe('2026-01-01T10:00:00.000Z')
   expect(tasks.get('c').kind).toBe('Workflow')
 })
+
+test('a new session with no message yet can be closed and leaves the list', async () => {
+  const sdk = await import('@anthropic-ai/claude-agent-sdk')
+  vi.mocked(sdk.query).mockImplementation(((args: { prompt: AsyncIterable<unknown> }) => ({
+    close: vi.fn(),
+    async *[Symbol.asyncIterator]() {
+      for await (const _ of args.prompt) yield { type: 'result', subtype: 'success', is_error: false, total_cost_usd: 0 }
+    }
+  })) as never)
+  const { Runner } = await import('./runner')
+  const ended: string[] = []
+  const runner = new Runner((e) => {
+    if (e.type === 'ended') ended.push(e.sessionId)
+  })
+  const { tempId } = await runner.start({ cwd: process.cwd(), prompt: '' })
+  expect(runner.list().map((l) => [l.sessionId, l.state])).toEqual([[tempId, 'idle']])
+  runner.close(tempId)
+  await vi.waitFor(() => expect(ended).toEqual([tempId]))
+  expect(runner.list()).toEqual([])
+})

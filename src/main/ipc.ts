@@ -231,6 +231,12 @@ export function registerIpc(
     void broadcast()
   })
   ipcMain.handle('sessions:delete', async (_e, rawId: unknown) => {
+    const unsaved = typeof rawId === 'string' && /^(pending-)?[0-9a-f-]{36}$/i.test(rawId) ? runner.list().find((l) => l.sessionId === rawId) : undefined
+    if (unsaved && !store.items().some((i) => i.id === rawId)) {
+      if (unsaved.state === 'running' || unsaved.state === 'waiting' || unsaved.state === 'starting') throw new Error('Claude is still working in this session. Stop it first.')
+      runner.close(unsaved.sessionId)
+      return
+    }
     const id = assertSessionId(rawId)
     const live = runner.list().find((l) => l.sessionId === id)
     if (live && (live.state === 'running' || live.state === 'waiting' || live.state === 'starting'))

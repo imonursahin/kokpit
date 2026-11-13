@@ -423,7 +423,7 @@ export function App() {
                 : undefined
             }
             onDelete={
-              detail.data
+              detail.data || live
                 ? async () => {
                     await window.kokpit?.deleteSession(id)
                     setOpenId(null)
