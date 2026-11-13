@@ -28,12 +28,13 @@ test('a meeting says when it starts and which ones are left today', () => {
   ).toBe(1)
 })
 
-test('the sidebar marks a meeting in progress and one starting within the reminder time', () => {
+test('the sidebar marks a meeting in progress, and the next one once it is close', () => {
   const now = Date.parse('2026-11-11T10:00:00Z')
   const live = ev('Daily', '2026-11-11T09:55:00Z', '2026-11-11T10:15:00Z')
   const soon = ev('Review', '2026-11-11T10:03:00Z', '2026-11-11T10:30:00Z')
   const later = ev('Planning', '2026-11-11T10:20:00Z', '2026-11-11T11:00:00Z')
-  expect(meetingState([live, soon], now, 5)).toEqual({ state: 'live', title: 'In a meeting · Daily' })
+  expect(meetingState([live, soon], now, 5)).toEqual({ state: 'soon', title: 'Review starts in 3 min' })
+  expect(meetingState([live, later], now, 5)).toEqual({ state: 'live', title: 'In a meeting · Daily' })
   expect(meetingState([soon, later], now, 5)).toEqual({ state: 'soon', title: 'Review starts in 3 min' })
   expect(meetingState([soon, later], now, 1)).toBeUndefined()
   expect(meetingState([ev('No', '2026-11-11T09:55:00Z', '2026-11-11T10:15:00Z', { response: 'declined' })], now, 5)).toBeUndefined()

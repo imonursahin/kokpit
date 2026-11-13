@@ -12,22 +12,25 @@ export function meetingSoon(events: CalendarEvent[], nowMs: number, reminderMinu
   return next ? { event: next.event, minutes: Math.ceil(next.left / 60_000) } : undefined
 }
 
-const live = (events: CalendarEvent[], nowMs: number) => timed(events).find((e) => Date.parse(e.start) <= nowMs && nowMs < Date.parse(e.end))
+const live = (events: CalendarEvent[], nowMs: number) =>
+  timed(events)
+    .filter((e) => Date.parse(e.start) <= nowMs && nowMs < Date.parse(e.end))
+    .sort((a, b) => Date.parse(b.start) - Date.parse(a.start))[0]
 
 export const MENU_BAR_HORIZON_MINUTES = 60
+export const MENU_BAR_SWITCH_MINUTES = 10
 
 export function menuBarMeeting(events: CalendarEvent[], nowMs: number, reminderMinutes: number): { event: CalendarEvent; minutes: number; live: boolean; alert: boolean } | undefined {
-  const soon = meetingSoon(events, nowMs, reminderMinutes)
-  if (soon) return { ...soon, live: false, alert: true }
   const current = live(events, nowMs)
+  const soon = meetingSoon(events, nowMs, Math.max(reminderMinutes, MENU_BAR_SWITCH_MINUTES))
+  if (soon) return { ...soon, live: false, alert: soon.minutes <= reminderMinutes || !!current }
   if (current) return { event: current, minutes: 0, live: true, alert: true }
   const next = meetingSoon(events, nowMs, MENU_BAR_HORIZON_MINUTES)
   return next ? { ...next, live: false, alert: false } : undefined
 }
 
 export function meetingState(events: CalendarEvent[], nowMs: number, reminderMinutes: number): MeetingState | undefined {
-  const current = live(events, nowMs)
-  if (current) return { state: 'live', title: `In a meeting · ${current.title}` }
-  const soon = meetingSoon(events, nowMs, reminderMinutes)
-  return soon ? { state: 'soon', title: `${soon.event.title} starts in ${soon.minutes} min` } : undefined
+  const m = menuBarMeeting(events, nowMs, reminderMinutes)
+  if (!m?.alert) return undefined
+  return m.live ? { state: 'live', title: `In a meeting · ${m.event.title}` } : { state: 'soon', title: `${m.event.title} starts in ${m.minutes} min` }
 }
