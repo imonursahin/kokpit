@@ -83,7 +83,7 @@ function initSection(kind: LibraryKind): Section {
   const s = MOCK_LIBRARY[kind]
   return {
     ...s,
-    view: kind === 'skills' ? 'edit' : 'preview',
+    view: 'preview',
     items: s.items.map((it) => ({ ...it, draft: it.draft ?? it.body, format: 'md' as const }))
   }
 }
