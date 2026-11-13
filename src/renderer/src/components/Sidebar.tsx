@@ -20,6 +20,8 @@ export type SidebarCounts = Record<LibraryKind, number> & {
   jira: number
   prs: number
   connectionWarning: boolean
+  jiraConnected?: boolean
+  githubConnected?: boolean
   calendar?: boolean
   meetings?: number
   meeting?: { state: 'live' | 'soon'; title: string }
@@ -151,8 +153,8 @@ export function Sidebar({
   const work: NavItem[] = [
     { id: 'overview', icon: 'space_dashboard', label: 'Overview', keyHint: '' },
     { id: 'sessions', icon: 'forum', label: 'Sessions', keyHint: '⌘1', wait: counts.waiting },
-    { id: 'jira', icon: 'task_alt', label: 'Jira tasks', keyHint: '⌘2', count: String(counts.jira) },
-    { id: 'prs', icon: 'merge', label: 'Pull requests', keyHint: '⌘3', count: String(counts.prs) },
+    ...(counts.jiraConnected ? [{ id: 'jira' as const, icon: 'task_alt', label: 'Jira tasks', keyHint: '⌘2', count: String(counts.jira) }] : []),
+    ...(counts.githubConnected ? [{ id: 'prs' as const, icon: 'merge', label: 'Pull requests', keyHint: '⌘3', count: String(counts.prs) }] : []),
     ...(counts.calendar
       ? [
           {

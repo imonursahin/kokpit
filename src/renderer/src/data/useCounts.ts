@@ -5,7 +5,7 @@ import { meetingState, type MeetingState } from '@shared/meetings'
 export { meetingState }
 import { LIBRARY_KINDS, type LibraryKind } from '@shared/library'
 
-export type ConfigCounts = Record<LibraryKind, number> & { jira: number; prs: number | null; connectionWarning: boolean; calendar: boolean; meetings: number; meeting?: MeetingState }
+export type ConfigCounts = Record<LibraryKind, number> & { jira: number; prs: number | null; connectionWarning: boolean; jiraConnected: boolean; githubConnected: boolean; calendar: boolean; meetings: number; meeting?: MeetingState }
 
 const MOCK: ConfigCounts = {
   instructions: 5,
@@ -18,6 +18,8 @@ const MOCK: ConfigCounts = {
   jira: 8,
   prs: 3,
   connectionWarning: true,
+  jiraConnected: true,
+  githubConnected: true,
   calendar: false,
   meetings: 0
 }
@@ -33,6 +35,8 @@ const EMPTY: ConfigCounts = {
   jira: 0,
   prs: null,
   connectionWarning: false,
+  jiraConnected: false,
+  githubConnected: false,
   calendar: false,
   meetings: 0
 }
@@ -76,7 +80,9 @@ export function useConfigCounts(page: string, refreshMinutes = 1, includeDraftRe
         if (lib.status === 'fulfilled')
           for (const kind of LIBRARY_KINDS) if (kind !== 'mcp') next[kind] = lib.value.entries.filter((e) => e.kind === kind && !e.parent && !(kind === 'memory' && e.name === 'MEMORY.md')).length
         if (conn.status === 'fulfilled') {
-          next.connectionWarning = conn.value.some((c) => c.status === 'expired' || (c.status === 'disconnected' && c.id !== 'google'))
+          next.connectionWarning = conn.value.some((c) => c.status === 'expired')
+          next.jiraConnected = conn.value.some((c) => c.id === 'jira' && c.status !== 'disconnected')
+          next.githubConnected = conn.value.some((c) => c.id === 'github' && c.status !== 'disconnected')
           next.calendar = conn.value.some((c) => c.id === 'google' && c.status !== 'disconnected')
         }
         if (jira.status === 'fulfilled') next.jira = jira.value.filter((i) => i.statusCategory !== 'done').length
