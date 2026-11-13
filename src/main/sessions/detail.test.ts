@@ -372,3 +372,32 @@ test('a background shell that writes to its own log shows that log', async () =>
   expect(redirectFile('npm run dev >/dev/null 2>&1', '/repo')).toBe('')
   expect(await backgroundCommand(file, 'nope')).toBe('')
 })
+
+test('a background shell is not shown running once it was stopped or its Kokpit process no longer has it', async () => {
+  const { mkdtempSync, writeFileSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const { buildDetail } = await import('./detail')
+  const dir = mkdtempSync(join(tmpdir(), 'kokpit-detail-'))
+  const file = join(dir, 's.jsonl')
+  const lines = [
+    JSON.stringify({ type: 'user', timestamp: '2026-01-01T10:00:00Z', message: { content: 'run the app' } }),
+    JSON.stringify({ type: 'assistant', timestamp: '2026-01-01T10:00:01Z', message: { id: 'a', model: 'claude-opus-5-5', content: [{ type: 'tool_use', id: 'b1', name: 'Bash', input: { command: 'npm run dev', run_in_background: true } }] } }),
+    JSON.stringify({ type: 'user', timestamp: '2026-01-01T10:00:02Z', toolUseResult: { backgroundTaskId: 'x1' }, message: { content: [{ type: 'tool_result', tool_use_id: 'b1', content: 'Command running in background with ID: x1' }] } })
+  ]
+  const item = { id: 's', file, title: 't', cwd: dir, repo: 'r', branch: 'main', jira: '', prNumber: null, prUrl: '', startedAt: '2026-01-01T10:00:00Z', lastAt: '2026-01-01T10:00:02Z', costUsd: 0, costComplete: true, model: '', mode: '', status: 'done', sub: '', headless: false } as const
+  const stepOf = async (opts: { processAlive?: boolean; liveTasks?: string[] }) => (await buildDetail({ ...item }, Date.now(), opts)).turns.flatMap((t) => (t.kind === 'claude' ? t.steps : []))[0]
+  writeFileSync(file, lines.join('\n'))
+  expect(await stepOf({ processAlive: true })).toMatchObject({ state: 'running', meta: 'in background' })
+  expect(await stepOf({ processAlive: true, liveTasks: ['x1'] })).toMatchObject({ state: 'running', meta: 'in background' })
+  expect(await stepOf({ processAlive: true, liveTasks: [] })).toMatchObject({ state: 'done', meta: 'stopped' })
+  writeFileSync(
+    file,
+    [
+      ...lines,
+      JSON.stringify({ type: 'assistant', timestamp: '2026-01-01T10:01:00Z', message: { id: 'c', model: 'claude-opus-5-5', content: [{ type: 'tool_use', id: 's1', name: 'TaskStop', input: { task_id: 'x1' } }] } }),
+      JSON.stringify({ type: 'user', timestamp: '2026-01-01T10:01:01Z', message: { content: [{ type: 'tool_result', tool_use_id: 's1', content: 'Successfully stopped task: x1' }] } })
+    ].join('\n')
+  )
+  expect(await stepOf({ processAlive: true })).toMatchObject({ state: 'done', meta: 'stopped' })
+})

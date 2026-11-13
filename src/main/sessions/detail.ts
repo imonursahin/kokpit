@@ -359,7 +359,7 @@ function transcriptFiles(edits: EditRecord[], base: string): DetailFile[] {
 
 const PLAN_FILE = /(^|\/)([A-Z][A-Z0-9]+-\d+-)?plan\.md$|\/\.claude\/plans\/[^/]+\.md$/i
 
-export async function buildDetail(item: SessionIndexItem, nowMs = Date.now(), opts: { sidechain?: boolean; maxTurns?: number; processAlive?: boolean } = {}): Promise<SessionDetailData> {
+export async function buildDetail(item: SessionIndexItem, nowMs = Date.now(), opts: { sidechain?: boolean; maxTurns?: number; processAlive?: boolean; liveTasks?: string[] } = {}): Promise<SessionDetailData> {
   const maxTurns = opts.maxTurns ?? MAX_TURNS
   const turns: DetailTurn[] = []
   const steps = new Map<string, DetailStep>()
@@ -402,6 +402,7 @@ export async function buildDetail(item: SessionIndexItem, nowMs = Date.now(), op
   let lastUserAt = ''
   const reports = new Map<string, string>()
   const background = new Set<string>()
+  const stops = new Map<string, string>()
   const finishBackground = (done: { toolUseId: string; status: string }) => {
     const step = steps.get(done.toolUseId)
     if (!step || !background.has(done.toolUseId)) return
@@ -450,6 +451,10 @@ export async function buildDetail(item: SessionIndexItem, nowMs = Date.now(), op
           const isError = b['is_error'] === true
           step.state = isError && !isRejection(text) ? 'error' : 'done'
           step.meta = resultMeta(step, text, isError)
+          const stopped = stops.get(str(b['tool_use_id']))
+          if (stopped && !isError) {
+            for (const [id, s] of steps) if (background.has(id) && s.taskId === stopped && s.state === 'running') Object.assign(s, { state: 'done', meta: 'stopped' })
+          }
           const launched = isObj(o['toolUseResult']) ? o['toolUseResult'] : {}
           if (!isError && (launched['status'] === 'async_launched' || str(launched['backgroundTaskId']))) background.add(str(b['tool_use_id']))
           const taskId = str(launched['taskId']) || str(launched['backgroundTaskId'])
@@ -590,6 +595,7 @@ export async function buildDetail(item: SessionIndexItem, nowMs = Date.now(), op
         step.startedAt = ts || undefined
         steps.set(str(b['id']), step)
         if (input['run_in_background'] === true) background.add(str(b['id']))
+        if (name === 'TaskStop') stops.set(str(b['id']), str(input['task_id']) || str(input['shell_id']))
         current.steps.push(step)
         const parts = (current.parts ??= [])
         const last = parts[parts.length - 1]
@@ -614,9 +620,10 @@ export async function buildDetail(item: SessionIndexItem, nowMs = Date.now(), op
 
   const running = item.status === 'running' || item.status === 'waiting'
   if (!running) {
+    const known = opts.liveTasks ? new Set(opts.liveTasks) : null
     for (const [id, s] of steps) {
       if (s.state !== 'running') continue
-      const live = background.has(id) && (s.workflow ? opts.processAlive !== false && (await workflowActive(item.file, s.workflow.runId, nowMs)) : opts.processAlive === true)
+      const live = background.has(id) && (known && !s.workflow ? known.has(id) || (!!s.taskId && known.has(s.taskId)) : s.workflow ? opts.processAlive !== false && (await workflowActive(item.file, s.workflow.runId, nowMs)) : opts.processAlive === true)
       if (live) continue
       s.state = 'done'
       if (background.has(id) && s.meta === 'in background') s.meta = 'stopped'

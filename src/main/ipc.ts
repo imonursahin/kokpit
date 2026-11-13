@@ -215,8 +215,10 @@ export function registerIpc(
     const item = withLive(store.items()).find((i) => i.id === id) ?? (await refresh()).find((i) => i.id === id)
     if (!item) throw new Error(`session ${id} not found`)
     const limit = typeof maxTurns === 'number' && Number.isInteger(maxTurns) ? Math.min(5000, Math.max(20, maxTurns)) : undefined
-    const processAlive = runner.list().some((l) => l.sessionId === id) || readCliStatuses().has(id)
-    const detail = await buildDetail(item, Date.now(), { maxTurns: limit, processAlive })
+    const kokpitLive = runner.list().find((l) => l.sessionId === id)
+    const processAlive = !!kokpitLive || readCliStatuses().has(id)
+    const liveTasks = kokpitLive ? (kokpitLive.background ?? []).flatMap((t) => [t.taskId, t.toolUseId].filter((v): v is string => !!v)) : undefined
+    const detail = await buildDetail(item, Date.now(), { maxTurns: limit, processAlive, liveTasks })
     if (detail.plan?.path && existsSync(detail.plan.path)) planPaths.set(id, detail.plan.path)
     if (detail.filesRoot) revertable.set(id, { root: detail.filesRoot, paths: new Set(detail.files.map((f) => f.path)) })
     else revertable.delete(id)
