@@ -22,7 +22,7 @@ test('keeps a known permission mode and ignores an unknown one', () => {
   expect(sanitizeSettings({ defaultMode: 'yolo' }).defaultMode).toBe(DEFAULT_SETTINGS.defaultMode)
 })
 
-test('session tags keep up to ten named, coloured tags and drop assignments to deleted tags', async () => {
+test('session tags keep up to twenty named, coloured tags, a session can have up to three, and deleted tags drop off', async () => {
   const { sanitizeSettings } = await import('./settings')
   const sid = '8a4cae0f-947f-4aee-bad7-8e4a27ebc714'
   const s = sanitizeSettings({
@@ -32,17 +32,21 @@ test('session tags keep up to ten named, coloured tags and drop assignments to d
       { id: 'Bad Id', name: 'x', color: 'red' },
       { id: 'review', name: 'Review', color: 'magenta' }
     ],
-    sessionTagOf: { [sid]: 'deploy', 'not-a-session': 'deploy', 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee': 'gone' }
+    sessionTagOf: { [sid]: ['deploy', 'review', 'gone', 'deploy'], 'not-a-session': ['deploy'], 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee': ['gone'] }
   })
   expect(s.sessionTags).toEqual([
     { id: 'deploy', name: 'Waiting for deploy', color: 'blue' },
     { id: 'review', name: 'Review', color: 'gray' }
   ])
-  expect(s.sessionTagOf).toEqual({ [sid]: 'deploy' })
+  expect(s.sessionTagOf).toEqual({ [sid]: ['deploy', 'review'] })
+  expect(sanitizeSettings({ sessionTags: [{ id: 'review', name: 'Review', color: 'gray' }] }, s).sessionTagOf).toEqual({ [sid]: ['review'] })
   expect(sanitizeSettings({ sessionTags: [] }, s).sessionTagOf).toEqual({})
-  const ten = Array.from({ length: 10 }, (_, i) => ({ id: `t${i}`, name: `T${i}`, color: 'blue' }))
-  expect(sanitizeSettings({ sessionTags: ten }).sessionTags).toHaveLength(10)
-  expect(() => sanitizeSettings({ sessionTags: [...ten, { id: 't10', name: 'T10', color: 'red' }] })).toThrow('up to 10')
+  expect(sanitizeSettings({ sessionTags: [{ id: 'deploy', name: 'Deploy', color: 'blue' }], sessionTagOf: { [sid]: 'deploy' } }).sessionTagOf).toEqual({ [sid]: ['deploy'] })
+  const four = ['a', 'b', 'c', 'd'].map((id) => ({ id, name: id, color: 'blue' }))
+  expect(sanitizeSettings({ sessionTags: four, sessionTagOf: { [sid]: ['a', 'b', 'c', 'd'] } }).sessionTagOf).toEqual({ [sid]: ['a', 'b', 'c'] })
+  const twenty = Array.from({ length: 20 }, (_, i) => ({ id: `t${i}`, name: `T${i}`, color: 'blue' }))
+  expect(sanitizeSettings({ sessionTags: twenty }).sessionTags).toHaveLength(20)
+  expect(() => sanitizeSettings({ sessionTags: [...twenty, { id: 't20', name: 'T20', color: 'red' }] })).toThrow('up to 20')
 })
 
 test('loading saved settings with a Claude path that no longer exists keeps everything else', () => {

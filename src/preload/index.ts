@@ -6,6 +6,7 @@ import type { SearchResponse } from '../shared/search'
 import type { AppInfo, DoctorCheck, KokpitSettings, PlanUsage, UpdateStatus } from '../shared/settings'
 import type { TrayState, TrayTarget } from '../shared/tray'
 import type { RemoteSession } from '../shared/remote'
+import type { PluginAction, PluginInfo, PluginScope, PluginUpdates } from '../shared/plugins'
 import type { McpAddInput, McpServerInfo } from '../shared/mcp'
 import type { SessionDetailData, SubagentDetail, WorkflowRun } from '../shared/sessionDetail'
 import type { SessionIndexItem } from '../shared/sessionIndex'
@@ -92,6 +93,12 @@ const api = {
     logout: (name: string): Promise<string> => ipcRenderer.invoke('mcp:logout', name),
     add: (input: McpAddInput): Promise<string> => ipcRenderer.invoke('mcp:add', input)
   },
+  plugins: {
+    list: (): Promise<PluginInfo[]> => ipcRenderer.invoke('plugins:list'),
+    details: (id: string): Promise<string> => ipcRenderer.invoke('plugins:details', id),
+    updates: (force?: boolean): Promise<PluginUpdates> => ipcRenderer.invoke('plugins:updates', force === true),
+    act: (action: PluginAction, id: string, scope: PluginScope, projectPath: string): Promise<string> => ipcRenderer.invoke('plugins:act', action, id, scope, projectPath)
+  },
   revertFile: (sessionId: string, path: string): Promise<'restored' | 'trashed'> => ipcRenderer.invoke('changes:revert', sessionId, path),
   search: (query: string): Promise<SearchResponse> => ipcRenderer.invoke('search:query', query),
   mentionFiles: (cwd: string, query: string): Promise<string[]> => ipcRenderer.invoke('files:mention', cwd, query),
@@ -105,7 +112,7 @@ const api = {
       ipcRenderer.invoke('runner:send', sessionId, text, images, settings),
     respond: (sessionId: string, requestId: string, decision: AskDecision, note?: string, answers?: Record<string, string>): Promise<void> =>
       ipcRenderer.invoke('runner:respond', sessionId, requestId, decision, note, answers),
-    interrupt: (sessionId: string): Promise<void> => ipcRenderer.invoke('runner:interrupt', sessionId),
+    interrupt: (sessionId: string): Promise<{ cancelled: string[] }> => ipcRenderer.invoke('runner:interrupt', sessionId),
     stopTask: (sessionId: string, taskId: string): Promise<void> => ipcRenderer.invoke('runner:stopTask', sessionId, taskId),
     commands: (cwd: string): Promise<SlashCommandInfo[]> => ipcRenderer.invoke('runner:commands', cwd),
     models: (): Promise<ModelOption[]> => ipcRenderer.invoke('runner:models'),

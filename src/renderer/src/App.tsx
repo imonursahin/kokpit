@@ -15,6 +15,7 @@ import { PullRequestsPage } from '@/pages/PullRequestsPage'
 import { CalendarPage } from '@/pages/CalendarPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 import { McpPage } from '@/pages/McpPage'
+import { PluginsPage } from '@/pages/PluginsPage'
 import { EFFORT_CHOICES, type KokpitSettings } from '@shared/settings'
 import { isRunnerMode } from '@shared/runner'
 import { useSessions } from '@/data/useSessions'
@@ -39,6 +40,8 @@ const PAGE_KEYS: Record<string, Page> = {
   '0': 'connections',
   ',': 'settings'
 }
+
+const SHIFT_PAGE_KEYS: Record<string, Page> = { m: 'memory', p: 'plugins' }
 
 function Placeholder({ title }: { title: string }) {
   return (
@@ -102,11 +105,12 @@ export function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!e.metaKey) return
-      if (e.shiftKey && e.key.toLowerCase() === 'm') {
+      const shifted = e.shiftKey ? SHIFT_PAGE_KEYS[e.key.toLowerCase()] : undefined
+      if (shifted) {
         e.preventDefault()
         setSearchOpen(false)
         setLibSelect(null)
-        setPage('memory')
+        setPage(shifted)
         return
       }
       const target = PAGE_KEYS[e.key]
@@ -158,9 +162,8 @@ export function App() {
       .map((s) => {
         const at = lastAt.get(s.id) ?? ''
         const unread = !!seen && s.status === 'done' && (seen[s.id] ?? '') < at
-        const tagId = settings?.sessionTagOf?.[s.id]
-        const tag = tagId ? settings?.sessionTags.find((t) => t.id === tagId) : undefined
-        return unread || pinned.has(s.id) || tag ? { ...s, unread, pinned: pinned.has(s.id), tag: tag ? { name: tag.name, color: tag.color } : undefined } : s
+        const tags = (settings?.sessionTags ?? []).filter((t) => settings?.sessionTagOf?.[s.id]?.includes(t.id)).map((t) => ({ name: t.name, color: t.color }))
+        return unread || pinned.has(s.id) || tags.length ? { ...s, unread, pinned: pinned.has(s.id), tags: tags.length ? tags : undefined } : s
       })
   }, [sessions, archived, pinned, items, seen, settings])
 
@@ -320,6 +323,9 @@ export function App() {
     case 'memory':
       main = <LibraryPage key={page} kind={page} selectPath={libSelect?.kind === page ? libSelect.path : undefined} />
       break
+    case 'plugins':
+      main = <PluginsPage />
+      break
     case 'mcp':
       main = window.kokpit ? (
         <McpPage fileEditor={<LibraryPage key="mcp" kind="mcp" selectPath={libSelect?.kind === 'mcp' ? libSelect.path : undefined} />} />
@@ -411,12 +417,12 @@ export function App() {
             onAttach={() => window.kokpit?.pickFiles() ?? Promise.resolve([])}
             onRename={detail.data ? (title) => window.kokpit?.renameSession(id, title) ?? Promise.resolve() : undefined}
             tags={settings?.sessionTags}
-            tagId={settings?.sessionTagOf?.[id]}
-            onTag={
+            tagIds={settings?.sessionTagOf?.[id]}
+            onTags={
               settings && /^[0-9a-f-]{36}$/i.test(id)
-                ? (tagId) => {
+                ? (tagIds) => {
                     const next = { ...settings.sessionTagOf }
-                    if (tagId) next[id] = tagId
+                    if (tagIds.length) next[id] = tagIds
                     else delete next[id]
                     void updateSettings({ sessionTagOf: next })
                   }
@@ -434,7 +440,7 @@ export function App() {
             onSavePlan={async (body) => {
               await window.kokpit?.savePlan(id, body)
             }}
-            onStop={() => void runner.interrupt(id)}
+            onStop={() => runner.interrupt(id)}
             onRespond={(requestId, decision, answers, note) => void runner.respond(id, requestId, decision, note, answers)}
             onRevert={(path) => window.kokpit?.revertFile(id, path) ?? Promise.reject(new Error('Not available'))}
           />

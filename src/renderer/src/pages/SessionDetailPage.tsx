@@ -386,8 +386,8 @@ function Header({
   onRename,
   onDelete,
   tags,
-  tagId,
-  onTag,
+  tagIds,
+  onTags,
   phone,
   onPhone
 }: {
@@ -399,8 +399,8 @@ function Header({
   onRename?: (t: string) => Promise<void>
   onDelete?: () => void
   tags?: SessionTag[]
-  tagId?: string
-  onTag?: (tagId: string | null) => void
+  tagIds?: string[]
+  onTags?: (tagIds: string[]) => void
   phone?: RemoteSession
   onPhone?: () => void
 }) {
@@ -435,7 +435,7 @@ function Header({
         <span style={{ color: 'var(--tx3)' }}>/</span>
         <EditableTitle key={h.title} title={h.title} onRename={onRename} />
         <Status status={h.status} label />
-        {onTag && <TagPicker tags={tags ?? []} tagId={tagId} onTag={onTag} />}
+        {onTags && <TagPicker tags={tags ?? []} tagIds={tagIds ?? []} onTags={onTags} />}
         <span style={{ flex: 1 }} />
         {h.context && <ContextMeter used={h.context.used} window={h.context.window} />}
         <span style={{ fontSize: 12, color: 'var(--tx3)' }}>{h.elapsed}</span>
@@ -1882,14 +1882,14 @@ type LiveProps = {
   live?: LiveSession
   draftKey?: string
   tags?: SessionTag[]
-  tagId?: string
-  onTag?: (tagId: string | null) => void
+  tagIds?: string[]
+  onTags?: (tagIds: string[]) => void
   onSend?: (text: string, opts?: { model?: string; effort?: string; mode?: RunnerMode; images?: ImageInput[]; rewindAt?: string }) => Promise<string | void>
   onCancelQueued?: (uuid: string) => Promise<boolean>
   onRewindFiles?: (uuid: string, dryRun: boolean) => Promise<RewindResult>
   onMode?: (mode: RunnerMode) => Promise<void>
   permissionMode?: RunnerMode
-  onStop?: () => void
+  onStop?: () => Promise<{ cancelled: string[] }>
   onRespond?: (requestId: string, decision: AskDecision, answers?: Record<string, string>, note?: string) => void
   onRevert?: (path: string) => Promise<string>
   onSavePlan?: (body: string) => Promise<void>
@@ -1933,8 +1933,8 @@ function Detail({
   onRename,
   draftKey,
   tags,
-  tagId,
-  onTag,
+  tagIds,
+  onTags,
   onDelete,
   modelOptions,
   effortOptions,
@@ -2174,7 +2174,17 @@ function Detail({
   const stop = () => {
     if (onStop) {
       takeBackUnanswered()
-      return onStop()
+      onStop()
+        .then(({ cancelled }) => {
+          if (!alive.current || !cancelled.length) return
+          const back = outbox.filter((m) => m.uuid && cancelled.includes(m.uuid))
+          if (!back.length) return
+          setOutbox((o) => o.filter((m) => !(m.uuid && cancelled.includes(m.uuid))))
+          const texts = back.map((m) => sentDrafts.current.get(m.id)?.typed ?? stripImageMarkers(m.text))
+          setText((cur) => [...texts, cur].filter((t) => t.trim()).join('\n'))
+        })
+        .catch((err: unknown) => alive.current && setSendError(err instanceof Error ? err.message : String(err)))
+      return
     }
     console.log('stop')
     setRunning(false)
@@ -2430,7 +2440,7 @@ function Detail({
         }
         return
       }
-      if (e.key === 'Escape' && running) {
+      if (e.key === 'Escape' && (running || (!!onStop && background.some((t) => t.taskId)))) {
         const overlay = document.querySelector('[aria-modal],[role="menu"],[role="listbox"],[role="dialog"]')
         if (!e.defaultPrevented && !overlay && (!isTyping(e) || e.target === inputRef.current)) {
           if (blockingAsk && onRespond) onRespond(blockingAsk.requestId, 'deny')
@@ -2476,8 +2486,8 @@ function Detail({
         onOpenPanel={() => setPanelOpen(true)}
         onRename={onRename}
         tags={tags}
-        tagId={tagId}
-        onTag={onTag}
+        tagIds={tagIds}
+        onTags={onTags}
         phone={phone}
         onPhone={onPhone}
         onDelete={

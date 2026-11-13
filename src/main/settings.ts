@@ -3,7 +3,7 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import { dirname, resolve } from 'node:path'
 import { MODES } from '../shared/runner'
-import { DEFAULT_SETTINGS, EFFORT_CHOICES, GITHUB_REFRESH_CHOICES, MEETING_REMINDER_CHOICES, MAX_SESSION_TAGS, MODEL_CHOICES, NOTIFY_EVENTS, TAG_COLORS, type KokpitSettings, type SessionTag } from '../shared/settings'
+import { DEFAULT_SETTINGS, EFFORT_CHOICES, GITHUB_REFRESH_CHOICES, MEETING_REMINDER_CHOICES, MAX_SESSION_TAGS, MAX_TAGS_PER_SESSION, MODEL_CHOICES, NOTIFY_EVENTS, TAG_COLORS, type KokpitSettings, type SessionTag } from '../shared/settings'
 
 export function sanitizeSettings(input: unknown, base: KokpitSettings = DEFAULT_SETTINGS, strict = true): KokpitSettings {
   const reject = (message: string): false => {
@@ -56,11 +56,16 @@ export function sanitizeSettings(input: unknown, base: KokpitSettings = DEFAULT_
   if (typeof o['sessionTagOf'] === 'object' && o['sessionTagOf'] !== null && !Array.isArray(o['sessionTagOf'])) {
     out.sessionTagOf = {}
     for (const [sid, tid] of Object.entries(o['sessionTagOf'] as Record<string, unknown>).slice(0, 5000)) {
-      if (/^[0-9a-f-]{36}$/i.test(sid) && typeof tid === 'string') out.sessionTagOf[sid] = tid
+      const ids = (Array.isArray(tid) ? tid : [tid]).filter((x): x is string => typeof x === 'string')
+      if (/^[0-9a-f-]{36}$/i.test(sid) && ids.length) out.sessionTagOf[sid] = [...new Set(ids)].slice(0, MAX_TAGS_PER_SESSION)
     }
   }
   const tagIds = new Set(out.sessionTags.map((t) => t.id))
-  out.sessionTagOf = Object.fromEntries(Object.entries(out.sessionTagOf ?? {}).filter(([, tid]) => tagIds.has(tid)))
+  out.sessionTagOf = Object.fromEntries(
+    Object.entries(out.sessionTagOf ?? {})
+      .map(([sid, ids]) => [sid, (Array.isArray(ids) ? ids : [ids]).filter((tid) => tagIds.has(tid))] as const)
+      .filter(([, ids]) => ids.length)
+  )
   if (typeof o['assistantHome'] === 'string') {
     const p = o['assistantHome'].trim()
     if (!p) out.assistantHome = ''

@@ -76,7 +76,7 @@ export function SessionRow({
           <span style={{ fontSize: 13.5, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>
             {s.title}
           </span>
-          {s.tag && <TagChip name={s.tag.name} color={s.tag.color} />}
+          {s.tags?.map((t) => <TagChip key={t.name} name={t.name} color={t.color} />)}
           {s.onPhone && (
             <Tip label="Remote Control active · on your phone">
               <Icon name="mobile_friendly" size={15} color="var(--ok)" />

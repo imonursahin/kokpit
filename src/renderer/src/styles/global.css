@@ -227,3 +227,7 @@ textarea.bare::placeholder { color: var(--tx3) }
 .tok-emphasis { font-style: italic }
 .tok-meta { color: var(--tx2) }
 .tok-invalid { color: var(--err) }
+
+.tag-removable button { opacity: 0; transition: opacity .12s }
+.tag-removable:hover button,
+.tag-removable button:focus-visible { opacity: 1 }

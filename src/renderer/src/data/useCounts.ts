@@ -5,7 +5,9 @@ import { meetingState, type MeetingState } from '@shared/meetings'
 export { meetingState }
 import { LIBRARY_KINDS, type LibraryKind } from '@shared/library'
 
-export type ConfigCounts = Record<LibraryKind, number> & { jira: number; prs: number | null; connectionWarning: boolean; jiraConnected: boolean; githubConnected: boolean; calendar: boolean; meetings: number; meeting?: MeetingState }
+export type ConfigCounts = Record<LibraryKind, number> & { jira: number; prs: number | null; connectionWarning: boolean; jiraConnected: boolean; githubConnected: boolean; calendar: boolean; plugins: number | null; meetings: number; meeting?: MeetingState }
+
+export const PLUGINS_CHANGED = 'kokpit:plugins-active'
 
 const MOCK: ConfigCounts = {
   instructions: 5,
@@ -20,6 +22,7 @@ const MOCK: ConfigCounts = {
   connectionWarning: true,
   jiraConnected: true,
   githubConnected: true,
+  plugins: 5,
   calendar: false,
   meetings: 0
 }
@@ -37,6 +40,7 @@ const EMPTY: ConfigCounts = {
   connectionWarning: false,
   jiraConnected: false,
   githubConnected: false,
+  plugins: null,
   calendar: false,
   meetings: 0
 }
@@ -110,6 +114,22 @@ export function useConfigCounts(page: string, refreshMinutes = 1, includeDraftRe
       alive = false
     }
   }, [api, mcpCheck])
+
+  useEffect(() => {
+    if (!api) return
+    let alive = true
+    const set = (n: number) => alive && setCounts((prev) => ({ ...prev, plugins: n }))
+    const onChange = (e: Event) => set((e as CustomEvent<number>).detail)
+    window.addEventListener(PLUGINS_CHANGED, onChange)
+    api.plugins
+      .list()
+      .then((list) => set(list.filter((p) => p.installs.some((i) => i.enabled)).length))
+      .catch(() => undefined)
+    return () => {
+      alive = false
+      window.removeEventListener(PLUGINS_CHANGED, onChange)
+    }
+  }, [api])
 
   return { ...counts, meetings: meetingsLeft(today, now), meeting: counts.calendar ? meetingState(today, now, reminderMinutes) : undefined }
 }

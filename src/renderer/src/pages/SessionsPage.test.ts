@@ -20,5 +20,5 @@ test('the tag filter shows only when some session has a tag', async () => {
       createElement(SessionsPage, { sessions: sessions as never, state: 'ready' as never, onOpen: noop, onAllow: noop, onArchive: noop, onPin: noop, onNew: noop, onPickJira: noop, onRetry: noop, onViewLogs: noop })
     )
   expect(render([base])).not.toContain('>Tag<')
-  expect(render([base, { ...base, id: 'b', tag: { name: 'Waiting test', color: 'amber' } }])).toContain('>Tag<')
+  expect(render([base, { ...base, id: 'b', tags: [{ name: 'Waiting test', color: 'amber' }, { name: 'Review', color: 'blue' }] }])).toContain('>Tag<')
 })

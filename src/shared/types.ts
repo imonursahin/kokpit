@@ -16,7 +16,7 @@ export type SessionSummary = {
   cost: string
   unread?: boolean
   pinned?: boolean
-  tag?: { name: string; color: string }
+  tags?: { name: string; color: string }[]
   askId?: string
   onPhone?: boolean
 }
@@ -34,6 +34,7 @@ export type Page =
   | 'commands'
   | 'hooks'
   | 'mcp'
+  | 'plugins'
   | 'memory'
   | 'connections'
   | 'settings'

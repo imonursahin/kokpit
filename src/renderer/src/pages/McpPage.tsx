@@ -49,14 +49,15 @@ function Chip({ status }: { status: McpStatus }) {
   )
 }
 
-function Action({ children, onClick, danger, busy }: { children: ReactNode; onClick: () => void; danger?: boolean; busy?: boolean }) {
+export function Action({ children, onClick, danger, busy, disabled, title }: { children: ReactNode; onClick: () => void; danger?: boolean; busy?: boolean; disabled?: boolean; title?: string }) {
   return (
     <button
       onClick={(e) => {
         e.stopPropagation()
         onClick()
       }}
-      disabled={busy}
+      disabled={busy || disabled}
+      title={title}
       style={{
         height: 28,
         padding: '0 10px',
@@ -66,7 +67,8 @@ function Action({ children, onClick, danger, busy }: { children: ReactNode; onCl
         fontWeight: 500,
         whiteSpace: 'nowrap',
         color: danger ? 'var(--err)' : 'var(--tx)',
-        opacity: busy ? 0.5 : 1
+        opacity: busy || disabled ? 0.5 : 1,
+        cursor: busy || disabled ? 'default' : 'pointer'
       }}
     >
       {children}
@@ -74,7 +76,7 @@ function Action({ children, onClick, danger, busy }: { children: ReactNode; onCl
   )
 }
 
-function Confirm({ title, body, action, onCancel, onConfirm }: { title: string; body: ReactNode; action: string; onCancel: () => void; onConfirm: () => void }) {
+export function Confirm({ title, body, action, onCancel, onConfirm }: { title: string; body: ReactNode; action: string; onCancel: () => void; onConfirm: () => void }) {
   return (
     <div
       role="presentation"

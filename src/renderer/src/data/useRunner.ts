@@ -8,7 +8,7 @@ export type Runner = {
   start: (req: StartSession) => Promise<string>
   send: (sessionId: string, text: string, images?: ImageInput[], settings?: TurnSettings) => Promise<string | undefined>
   respond: (sessionId: string, requestId: string, decision: AskDecision, note?: string, answers?: Record<string, string>) => Promise<void>
-  interrupt: (sessionId: string) => Promise<void>
+  interrupt: (sessionId: string) => Promise<{ cancelled: string[] }>
   setMode: (sessionId: string, mode: RunnerMode) => Promise<void>
   sessionIdFor: (tempId: string) => string | undefined
   release: (id: string) => void
@@ -111,7 +111,7 @@ export function useRunner(): Runner {
       api ? api.respond(id, requestId, decision, note, answers) : Promise.resolve(),
     [api]
   )
-  const interrupt = useCallback((id: string) => (api ? api.interrupt(id) : Promise.resolve()), [api])
+  const interrupt = useCallback((id: string) => (api ? api.interrupt(id) : Promise.resolve({ cancelled: [] })), [api])
   const setMode = useCallback((id: string, mode: RunnerMode) => (api ? api.setMode(id, mode) : Promise.resolve()), [api])
   const sessionIdFor = useCallback(
     (tempId: string) => ids.get(tempId) ?? (tempId.startsWith('pending-') ? undefined : tempId),

@@ -608,17 +608,25 @@ export class Runner {
     this.publish(l)
   }
 
-  async interrupt(sessionId: unknown): Promise<void> {
+  async interrupt(sessionId: unknown): Promise<{ cancelled: string[] }> {
     if (typeof sessionId !== 'string') throw new Error('invalid session id')
     const l = this.find(sessionId)
-    if (!l || (l.info.state !== 'running' && l.info.state !== 'waiting' && l.info.state !== 'starting')) return
-    l.interrupted = true
-    try {
-      await l.q.interrupt()
-    } catch (err) {
-      l.interrupted = false
-      throw err
+    if (!l) return { cancelled: [] }
+    const tasks = [...l.tasks.values()]
+    let cancelled: string[] = []
+    if (l.info.state === 'running' || l.info.state === 'waiting' || l.info.state === 'starting') {
+      l.interrupted = true
+      try {
+        const interrupt = l.q.interrupt.bind(l.q) as (opts?: { cancelQueued?: boolean }) => Promise<{ cancelled?: unknown } | undefined>
+        const receipt = await interrupt({ cancelQueued: true })
+        cancelled = Array.isArray(receipt?.cancelled) ? receipt.cancelled.filter((u): u is string => typeof u === 'string') : []
+      } catch (err) {
+        l.interrupted = false
+        throw err
+      }
     }
+    await Promise.allSettled(tasks.map((t) => l.q.stopTask(t.taskId ?? t.id)))
+    return { cancelled }
   }
 
   async stopTask(sessionId: unknown, taskId: unknown): Promise<void> {

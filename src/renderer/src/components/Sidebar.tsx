@@ -23,6 +23,7 @@ export type SidebarCounts = Record<LibraryKind, number> & {
   jiraConnected?: boolean
   githubConnected?: boolean
   calendar?: boolean
+  plugins?: number | null
   meetings?: number
   meeting?: { state: 'live' | 'soon'; title: string }
 }
@@ -176,7 +177,8 @@ export function Sidebar({
     { id: 'commands', icon: 'terminal', label: 'Commands', keyHint: '⌘7', count: String(counts.commands) },
     { id: 'hooks', icon: 'webhook', label: 'Hooks', keyHint: '⌘8', count: String(counts.hooks) },
     { id: 'memory', icon: 'psychology', label: 'Memory', keyHint: '⇧⌘M', count: String(counts.memory) },
-    { id: 'mcp', icon: 'dns', label: 'MCP servers', keyHint: '⌘9', count: String(counts.mcp) }
+    { id: 'mcp', icon: 'dns', label: 'MCP servers', keyHint: '⌘9', count: String(counts.mcp) },
+    { id: 'plugins', icon: 'extension', label: 'Plugins', keyHint: '⇧⌘P', count: counts.plugins == null ? undefined : String(counts.plugins), title: counts.plugins == null ? undefined : `${counts.plugins} plugins turned on` }
   ]
   const current: Page = active === 'session' ? 'sessions' : active
 

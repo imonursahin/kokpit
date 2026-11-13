@@ -162,7 +162,7 @@ export function SessionsPage({
   }, [scoped])
 
   const jiraKeys = useMemo(() => [...new Set(scoped.map((s) => s.jira).filter(Boolean))].sort(), [scoped])
-  const tagNames = useMemo(() => [...new Set(sessions.flatMap((s) => (s.tag ? [s.tag.name] : [])))].sort((a, b) => a.localeCompare(b)), [sessions])
+  const tagNames = useMemo(() => [...new Set(sessions.flatMap((s) => (s.tags ?? []).map((t) => t.name)))].sort((a, b) => a.localeCompare(b)), [sessions])
   const activeTag = tagNames.includes(tag) ? tag : ''
 
   const rows = useMemo(() => {
@@ -172,7 +172,7 @@ export function SessionsPage({
         (s) =>
           (tab === 'all' || s.status === tab) &&
           (!jira || s.jira === jira) &&
-          (!activeTag || s.tag?.name === activeTag) &&
+          (!activeTag || !!s.tags?.some((t) => t.name === activeTag)) &&
           (!q || s.title.toLowerCase().includes(q))
       )
       .sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned) || (a.pinned && b.pinned ? pinOrder.indexOf(a.id) - pinOrder.indexOf(b.id) : 0))

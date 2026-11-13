@@ -381,3 +381,46 @@ test('a new session with no message yet can be closed and leaves the list', asyn
   await vi.waitFor(() => expect(ended).toEqual([tempId]))
   expect(runner.list()).toEqual([])
 })
+
+test('Esc stops the turn, cancels queued messages in the same step, and stops background work', async () => {
+  const sdk = await import('@anthropic-ai/claude-agent-sdk')
+  let wake: () => void = () => {}
+  const msgs: unknown[] = []
+  const feed = (m: unknown) => {
+    msgs.push(m)
+    wake()
+  }
+  const interrupt = vi.fn(async () => ({ still_queued: [], cancelled: ['q-1', 'q-2'] }))
+  const stopTask = vi.fn(async (_taskId: string) => {})
+  vi.mocked(sdk.query).mockImplementation((() => ({
+    close: vi.fn(),
+    interrupt,
+    stopTask,
+    async *[Symbol.asyncIterator]() {
+      while (true) {
+        if (msgs.length) yield msgs.shift()
+        else await new Promise<void>((r) => (wake = r))
+      }
+    }
+  })) as never)
+  const { Runner } = await import('./runner')
+  const runner = new Runner(() => {})
+  await runner.start({ cwd: process.cwd(), prompt: 'run it' })
+  feed({ type: 'system', subtype: 'init', session_id: 's2', model: 'm', permissionMode: 'default' })
+  feed({ type: 'system', subtype: 'task_started', task_id: 'w1', task_type: 'local_workflow', workflow_name: 'dev-pipeline', session_id: 's2' })
+  feed({ type: 'system', subtype: 'task_started', task_id: 'b1', task_type: 'local_bash', description: 'npm run dev', session_id: 's2' })
+  await vi.waitFor(() => expect(runner.list()[0]?.background).toHaveLength(2))
+  expect(await runner.interrupt('s2')).toEqual({ cancelled: ['q-1', 'q-2'] })
+  expect(interrupt).toHaveBeenCalledWith({ cancelQueued: true })
+  expect(stopTask.mock.calls.map((c) => c[0]).sort()).toEqual(['b1', 'w1'])
+
+  feed({ type: 'result', subtype: 'error_during_execution', is_error: true, total_cost_usd: 0, session_id: 's2' })
+  feed({ type: 'system', subtype: 'task_started', task_id: 'w2', task_type: 'local_workflow', workflow_name: 'later', session_id: 's2' })
+  await vi.waitFor(() => expect(runner.list()[0]).toMatchObject({ state: 'idle' }))
+  interrupt.mockClear()
+  stopTask.mockClear()
+  expect(await runner.interrupt('s2')).toEqual({ cancelled: [] })
+  expect(interrupt).not.toHaveBeenCalled()
+  expect(stopTask.mock.calls.map((c) => c[0])).toContain('w2')
+  runner.dispose()
+})

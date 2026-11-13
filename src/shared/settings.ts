@@ -18,7 +18,8 @@ export type TagColor = (typeof TAG_COLORS)[number]
 
 export type SessionTag = { id: string; name: string; color: TagColor }
 
-export const MAX_SESSION_TAGS = 10
+export const MAX_SESSION_TAGS = 20
+export const MAX_TAGS_PER_SESSION = 3
 
 export type KokpitSettings = {
   defaultModel: string
@@ -36,7 +37,7 @@ export type KokpitSettings = {
   menuBarMeetings: boolean
   notify: Record<NotifyEvent, boolean>
   sessionTags: SessionTag[]
-  sessionTagOf: Record<string, string>
+  sessionTagOf: Record<string, string[]>
 }
 
 export const GITHUB_REFRESH_CHOICES = [1, 2, 5, 10, 30]

@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Icon } from './primitives'
-import type { TagColor } from '@shared/settings'
+import { MAX_TAGS_PER_SESSION, type TagColor } from '@shared/settings'
 
 export const TAG_HEX: Record<TagColor, string> = {
   blue: '#3B82F6',
@@ -45,56 +45,67 @@ export function TagChip({ name, color }: { name: string; color: string }) {
   )
 }
 
-export function TagPicker({ tags, tagId, onTag }: { tags: { id: string; name: string; color: string }[]; tagId?: string; onTag: (tagId: string | null) => void }) {
+export function TagPicker({ tags, tagIds, onTags }: { tags: { id: string; name: string; color: string }[]; tagIds: string[]; onTags: (tagIds: string[]) => void }) {
   const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLSpanElement>(null)
   useEffect(() => {
     if (!open) return
-    const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
-    window.addEventListener('mousedown', onDown)
+    const onBlur = () => setOpen(false)
     window.addEventListener('keydown', onKey)
+    window.addEventListener('blur', onBlur)
     return () => {
-      window.removeEventListener('mousedown', onDown)
       window.removeEventListener('keydown', onKey)
+      window.removeEventListener('blur', onBlur)
     }
   }, [open])
-  const current = tags.find((t) => t.id === tagId)
-  const pick = (id: string | null) => {
-    setOpen(false)
-    onTag(id)
-  }
+  const current = tags.filter((t) => tagIds.includes(t.id))
+  const rest = tags.filter((t) => !tagIds.includes(t.id))
   return (
-    <span ref={ref} style={{ position: 'relative', display: 'inline-flex' }}>
-      <button aria-haspopup="menu" aria-expanded={open} title="Session tag" onClick={() => setOpen((v) => !v)} style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer' }}>
-        {current ? (
-          <TagChip name={current.name} color={current.color} />
-        ) : (
+    <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+      {current.map((t) => (
+        <span key={t.id} className="tag-removable" style={{ position: 'relative', display: 'inline-flex' }}>
+          <TagChip name={t.name} color={t.color} />
+          <button
+            aria-label={`Remove tag ${t.name}`}
+            title={`Remove ${t.name}`}
+            onClick={() => onTags(tagIds.filter((x) => x !== t.id))}
+            style={{ position: 'absolute', top: -5, right: -5, width: 14, height: 14, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--panel)', border: '1px solid var(--line)', cursor: 'pointer' }}
+          >
+            <Icon name="close" size={10} color="var(--tx2)" />
+          </button>
+        </span>
+      ))}
+      {current.length < MAX_TAGS_PER_SESSION && (
+        <button aria-haspopup="menu" aria-expanded={open} title="Add a tag" onClick={() => setOpen((v) => !v)} style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer' }}>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, height: 20, padding: '0 7px', borderRadius: 10, border: '1px dashed var(--line)', fontSize: 11.5, color: 'var(--tx3)' }}>
             <Icon name="sell" size={13} color="var(--tx3)" />
             Tag
           </span>
-        )}
-      </button>
+        </button>
+      )}
       {open && (
-        <div role="menu" style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 40, minWidth: 200, padding: 4, background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--pop)', display: 'flex', flexDirection: 'column' }}>
-          {tags.length === 0 && <span style={{ padding: '8px 10px', fontSize: 12.5, color: 'var(--tx3)' }}>No tags yet. Add them in Settings → Sessions.</span>}
-          {tags.map((t) => (
-            <button key={t.id} role="menuitemradio" aria-checked={t.id === tagId} className="menu-item" onClick={() => pick(t.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', borderRadius: 7, fontSize: 13, textAlign: 'left', cursor: 'pointer' }}>
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: tagHex(t.color) }} />
-              <span style={{ flex: 1 }}>{t.name}</span>
-              {t.id === tagId && <Icon name="check" size={15} color="var(--tx2)" />}
-            </button>
-          ))}
-          {current && (
-            <button role="menuitem" className="menu-item" onClick={() => pick(null)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', borderRadius: 7, fontSize: 13, color: 'var(--tx2)', textAlign: 'left', cursor: 'pointer', borderTop: '1px solid var(--line-soft)' }}>
-              <Icon name="close" size={14} color="var(--tx3)" />
-              Remove tag
-            </button>
-          )}
-        </div>
+        <>
+          <div className="no-drag" onMouseDown={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 39 }} />
+          <div role="menu" style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 40, minWidth: 200, maxHeight: 360, overflow: 'auto', padding: 4, background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--pop)', display: 'flex', flexDirection: 'column' }}>
+            {tags.length === 0 && <span style={{ padding: '8px 10px', fontSize: 12.5, color: 'var(--tx3)' }}>No tags yet. Add them in Settings → Sessions.</span>}
+            {tags.length > 0 && rest.length === 0 && <span style={{ padding: '8px 10px', fontSize: 12.5, color: 'var(--tx3)' }}>Every tag is already on this session.</span>}
+            {rest.map((t) => (
+              <button
+                key={t.id}
+                role="menuitem"
+                className="menu-item"
+                onClick={() => {
+                  setOpen(false)
+                  onTags([...tagIds, t.id])
+                }}
+                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', borderRadius: 7, fontSize: 13, textAlign: 'left', cursor: 'pointer' }}
+              >
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: tagHex(t.color) }} />
+                <span style={{ flex: 1 }}>{t.name}</span>
+              </button>
+            ))}
+          </div>
+        </>
       )}
     </span>
   )
