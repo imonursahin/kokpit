@@ -2276,6 +2276,7 @@ function Detail({
     }
     if (sending.current) return
     sending.current = true
+    stick.current = true
     setSendError(null)
     const modelId = modelOptions?.find((m) => m.label === model)?.id
     const id = Date.now()
@@ -2332,6 +2333,7 @@ function Detail({
       return
     }
     setPanelMsg(null)
+    stick.current = true
     onSend(message)
       .then(() => {
         if (!alive.current) return
@@ -2369,6 +2371,7 @@ function Detail({
     }
     if (!onSend) return console.log('approve and implement plan')
     setPlanMsg(null)
+    stick.current = true
     onSend('The plan is approved. Implement it now, step by step.')
       .then(() => alive.current && setPlanMsg({ tone: 'ok', text: 'Sent to Claude' }))
       .catch((err: unknown) => alive.current && setPlanMsg({ tone: 'err', text: err instanceof Error ? err.message : String(err) }))
@@ -2461,7 +2464,7 @@ function Detail({
   useEffect(() => {
     const el = scrollRef.current
     if (el && stick.current) el.scrollTop = el.scrollHeight
-  }, [data.turns, live?.pending, partial])
+  }, [data.turns, live?.pending, partial, outbox])
 
   return (
     <main style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', background: 'var(--bg)', color: 'var(--tx)' }}>
