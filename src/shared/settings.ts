@@ -35,6 +35,7 @@ export type KokpitSettings = {
   notifyWhenFocused: boolean
   menuBar: boolean
   menuBarMeetings: boolean
+  doneSound: boolean
   notify: Record<NotifyEvent, boolean>
   sessionTags: SessionTag[]
   sessionTagOf: Record<string, string[]>
@@ -57,6 +58,7 @@ export const DEFAULT_SETTINGS: KokpitSettings = {
   notifyWhenFocused: false,
   menuBar: true,
   menuBarMeetings: false,
+  doneSound: true,
   sessionTags: [],
   sessionTagOf: {},
   notify: { sessionWaiting: false, sessionDone: false, sessionError: false, prChecksFailed: false, prChangesRequested: false, prReviewRequested: false, meetingSoon: true }

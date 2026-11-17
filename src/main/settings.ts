@@ -33,6 +33,7 @@ export function sanitizeSettings(input: unknown, base: KokpitSettings = DEFAULT_
   if (typeof o['notifyWhenFocused'] === 'boolean') out.notifyWhenFocused = o['notifyWhenFocused']
   if (typeof o['menuBar'] === 'boolean') out.menuBar = o['menuBar']
   if (typeof o['menuBarMeetings'] === 'boolean') out.menuBarMeetings = o['menuBarMeetings']
+  if (typeof o['doneSound'] === 'boolean') out.doneSound = o['doneSound']
   const notify = o['notify']
   if (typeof notify === 'object' && notify !== null) {
     for (const e of NOTIFY_EVENTS) {

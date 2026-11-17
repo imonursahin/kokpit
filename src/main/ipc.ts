@@ -20,6 +20,7 @@ import { pluginAction, pluginDetails, pluginList, pluginUpdates } from './plugin
 import { Runner } from './runner'
 import { Terminals } from './terminal'
 import { RemoteSessions } from './remote'
+import { playDoneSound } from './sound'
 import { assistantHome, assistantPrompt, ensureAssistantHome, memoryDir } from './assistant'
 import { SettingsStore } from './settings'
 import { runDoctor } from './doctor'
@@ -77,6 +78,7 @@ export function registerIpc(
       const list = sessionsPrimed ? sessionNotices(lastStatus, items, s.showHeadless) : []
       sessionsPrimed = true
       for (const i of items) lastStatus.set(i.id, i.status)
+      if (s.doneSound && list.some((n) => n.event === 'sessionDone')) void playDoneSound(app.getPath('userData'), log)
       showNotices(list)
       opts.onSessions?.(items, s.showHeadless, s.menuBar)
     })
@@ -351,6 +353,7 @@ export function registerIpc(
   ipcMain.handle('mcp:logout', (_e, name: unknown) => mcpLogout(mcpCtx(), name))
   ipcMain.handle('mcp:add', (_e, input: unknown) => mcpAdd(mcpCtx(), input))
   ipcMain.handle('plugins:list', () => pluginList(mcpCtx()))
+  ipcMain.handle('app:testSound', () => playDoneSound(app.getPath('userData'), log))
   ipcMain.handle('plugins:details', (_e, id: unknown) => pluginDetails(mcpCtx(), id))
   ipcMain.handle('plugins:updates', (_e, force: unknown) => pluginUpdates(mcpCtx(), force === true))
   ipcMain.handle('plugins:act', (_e, action: unknown, id: unknown, scope: unknown, projectPath: unknown) => pluginAction(mcpCtx(), action, id, scope, projectPath))
@@ -591,7 +594,7 @@ export function registerIpc(
     watcher?.close()
     ipcMain.removeHandler('sessions:list')
     ipcMain.removeHandler('sessions:detail')
-    for (const ch of ['library:list', 'library:save', 'library:create', 'library:createFile', 'library:import', 'library:delete', 'search:query', 'runner:list', 'runner:start', 'runner:send', 'runner:respond', 'runner:interrupt', 'runner:commands', 'runner:models', 'runner:cancelQueued', 'runner:rewindFiles', 'files:mention', 'shell:run', 'memory:append', 'runner:setMode', 'integrations:status', 'integrations:connectJira', 'integrations:connectGithub', 'integrations:connectGoogle', 'calendar:events', 'integrations:disconnect', 'jira:issues', 'jira:issue', 'github:prs', 'app:user', 'changes:revert', 'github:prsByUrl', 'settings:get', 'settings:update', 'app:info', 'app:openFolder', 'app:keepAwake', 'app:doctor', 'app:planUsage', 'tray:refreshUsage', 'app:testNotification', 'sessions:rebuild', 'dialog:pickFiles', 'plan:save', 'jira:comment', 'github:mine', 'github:counts', 'sessions:rename', 'sessions:delete', 'sessions:subagent', 'sessions:workflow', 'sessions:taskOutput', 'runner:stopTask', 'mcp:status', 'mcp:remove', 'mcp:logout', 'mcp:add', 'term:mcpLogin', 'term:update', 'update:get', 'update:check', 'app:relaunch', 'term:write', 'term:resize', 'term:kill', 'remote:list', 'remote:attach', 'remote:stop', 'remote:start', 'plugins:list', 'plugins:details', 'plugins:act', 'plugins:updates'])
+    for (const ch of ['library:list', 'library:save', 'library:create', 'library:createFile', 'library:import', 'library:delete', 'search:query', 'runner:list', 'runner:start', 'runner:send', 'runner:respond', 'runner:interrupt', 'runner:commands', 'runner:models', 'runner:cancelQueued', 'runner:rewindFiles', 'files:mention', 'shell:run', 'memory:append', 'runner:setMode', 'integrations:status', 'integrations:connectJira', 'integrations:connectGithub', 'integrations:connectGoogle', 'calendar:events', 'integrations:disconnect', 'jira:issues', 'jira:issue', 'github:prs', 'app:user', 'changes:revert', 'github:prsByUrl', 'settings:get', 'settings:update', 'app:info', 'app:openFolder', 'app:keepAwake', 'app:doctor', 'app:planUsage', 'tray:refreshUsage', 'app:testNotification', 'sessions:rebuild', 'dialog:pickFiles', 'plan:save', 'jira:comment', 'github:mine', 'github:counts', 'sessions:rename', 'sessions:delete', 'sessions:subagent', 'sessions:workflow', 'sessions:taskOutput', 'runner:stopTask', 'mcp:status', 'mcp:remove', 'mcp:logout', 'mcp:add', 'term:mcpLogin', 'term:update', 'update:get', 'update:check', 'app:relaunch', 'term:write', 'term:resize', 'term:kill', 'remote:list', 'remote:attach', 'remote:stop', 'remote:start', 'plugins:list', 'plugins:details', 'plugins:act', 'plugins:updates', 'app:testSound'])
       ipcMain.removeHandler(ch)
     if (awakeId !== null) powerSaveBlocker.stop(awakeId)
     runner.dispose()

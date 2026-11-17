@@ -21,6 +21,7 @@ const api = {
   doctor: (): Promise<DoctorCheck[]> => ipcRenderer.invoke('app:doctor'),
   planUsage: (): Promise<PlanUsage> => ipcRenderer.invoke('app:planUsage'),
   testNotification: (): Promise<void> => ipcRenderer.invoke('app:testNotification'),
+  testSound: (): Promise<void> => ipcRenderer.invoke('app:testSound'),
   relaunch: (): Promise<void> => ipcRenderer.invoke('app:relaunch'),
   setUnread: (list: { id: string; title: string }[]): void => ipcRenderer.send('tray:unread', list),
   tray: {

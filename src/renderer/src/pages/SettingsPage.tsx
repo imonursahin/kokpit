@@ -621,7 +621,13 @@ export function SettingsPage({
                     />
                   </Row>
                 </Group>
-                <Group title="Sessions">{SESSION_EVENTS.map(eventRow)}</Group>
+                <Group title="Sessions">
+                  {SESSION_EVENTS.map(eventRow)}
+                  <Row label="Play a sound when a session finishes" hint="A short Kokpit chime when Claude is done, even with notifications off">
+                    <Action onClick={() => void api?.testSound()}>Play</Action>
+                    <Toggle label="Play a sound when a session finishes" on={settings?.doneSound ?? true} onChange={(v) => void save({ doneSound: v })} />
+                  </Row>
+                </Group>
                 <Group title="Pull requests">{PR_EVENTS.map(eventRow)}</Group>
                 <Group title="Meetings">
                   {MEETING_EVENTS.map(eventRow)}
