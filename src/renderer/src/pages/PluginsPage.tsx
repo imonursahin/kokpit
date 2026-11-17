@@ -294,8 +294,8 @@ export function PluginsPage() {
                       </Action>
                       <Action
                         busy={busy === key}
-                        disabled={checking || u?.state === 'current'}
-                        title={checking ? 'Checking for updates…' : u?.state === 'current' ? 'Already the latest version' : u?.state === 'outdated' ? `Update to ${u.latest}` : 'Could not tell if there is a newer version'}
+                        disabled={u ? u.state === 'current' : checking}
+                        title={u?.state === 'current' ? 'Already the latest version' : u?.state === 'outdated' ? `Update to ${u.latest}` : checking ? 'Checking for updates…' : 'Could not tell if there is a newer version'}
                         onClick={() => act('update', sel, i)}
                       >
                         Update
