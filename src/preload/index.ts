@@ -24,6 +24,7 @@ const api = {
   testSound: (): Promise<void> => ipcRenderer.invoke('app:testSound'),
   relaunch: (): Promise<void> => ipcRenderer.invoke('app:relaunch'),
   setUnread: (list: { id: string; title: string }[]): void => ipcRenderer.send('tray:unread', list),
+  setPinned: (ids: string[]): void => ipcRenderer.send('sessions:pinned', ids),
   tray: {
     getState: (): Promise<TrayState> => ipcRenderer.invoke('tray:getState'),
     onState: (cb: (s: TrayState) => void): (() => void) => {

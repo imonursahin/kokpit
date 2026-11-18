@@ -223,6 +223,7 @@ export function App() {
     })
   }, [])
   const pinOrder = useMemo(() => [...pinned], [pinned])
+  useEffect(() => window.kokpit?.setPinned(pinOrder), [pinOrder])
   const archive = useCallback(
     (id: string) =>
       setArchived((prev) => {

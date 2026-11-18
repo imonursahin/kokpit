@@ -176,8 +176,9 @@ export function registerIpc(
   const stateFile = join(app.getPath('userData'), 'sessions-state.json')
   const stateNote = sessionStateNote(stateFile)
   let unreadIds = new Set<string>()
+  let pinnedIds = new Set<string>()
   let lastItems: SessionIndexItem[] = []
-  const saveState = () => void writeSessionState(stateFile, sessionState(lastItems, unreadIds)).catch((err: Error) => log(`session state: ${err.message}`))
+  const saveState = () => void writeSessionState(stateFile, sessionState(lastItems, unreadIds, pinnedIds)).catch((err: Error) => log(`session state: ${err.message}`))
   const broadcast = async () => {
     try {
       const items = await refresh()
@@ -527,6 +528,12 @@ export function registerIpc(
     opts.onUnread?.(clean)
   }
   ipcMain.on('tray:unread', onUnread)
+  const onPinned = (_e: unknown, ids: unknown) => {
+    if (!Array.isArray(ids)) return
+    pinnedIds = new Set(ids.filter((x): x is string => typeof x === 'string').slice(0, 200).map((x) => x.slice(0, 100)))
+    saveState()
+  }
+  ipcMain.on('sessions:pinned', onPinned)
   ipcMain.handle('tray:refreshUsage', () => readPlan(5_000))
   const pollPlan = () =>
     void settings.get().then((s) => {
@@ -598,6 +605,7 @@ export function registerIpc(
     clearInterval(meetingPoll)
     clearTimeout(planFirst)
     ipcMain.removeListener('tray:unread', onUnread)
+    ipcMain.removeListener('sessions:pinned', onPinned)
     clearInterval(planTick)
     if (timer) clearTimeout(timer)
     watcher?.close()
