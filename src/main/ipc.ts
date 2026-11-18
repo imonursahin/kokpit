@@ -21,6 +21,7 @@ import { Runner } from './runner'
 import { Terminals } from './terminal'
 import { RemoteSessions } from './remote'
 import { playDoneSound } from './sound'
+import { sessionState, sessionStateNote, writeSessionState } from './sessionState'
 import { assistantHome, assistantPrompt, ensureAssistantHome, memoryDir } from './assistant'
 import { SettingsStore } from './settings'
 import { runDoctor } from './doctor'
@@ -110,7 +111,7 @@ export function registerIpc(
     }
   }, log, () => claudeExecutable || (bundledClaude && existsSync(bundledClaude) ? bundledClaude : undefined), async () => {
     if (!existsSync(home)) return null
-    return { home, prompt: await assistantPrompt(home) }
+    return { home, prompt: [await assistantPrompt(home), stateNote].filter(Boolean).join('\n\n') }
   })
   let phoneIds = new Set<string>()
   const withLive = (items: SessionIndexItem[]): SessionIndexItem[] => {
@@ -172,9 +173,16 @@ export function registerIpc(
     return refreshing
   }
 
+  const stateFile = join(app.getPath('userData'), 'sessions-state.json')
+  const stateNote = sessionStateNote(stateFile)
+  let unreadIds = new Set<string>()
+  let lastItems: SessionIndexItem[] = []
+  const saveState = () => void writeSessionState(stateFile, sessionState(lastItems, unreadIds)).catch((err: Error) => log(`session state: ${err.message}`))
   const broadcast = async () => {
     try {
       const items = await refresh()
+      lastItems = items
+      saveState()
       watchSessions(items)
       for (const win of BrowserWindow.getAllWindows()) win.webContents.send('sessions:changed', items)
     } catch (err) {
@@ -302,7 +310,7 @@ export function registerIpc(
     const env: NodeJS.ProcessEnv = { ...process.env }
     for (const key of PARENT_SESSION_ENV) delete env[key]
     if (existsSync(home)) {
-      const prompt = await assistantPrompt(home)
+      const prompt = [await assistantPrompt(home), stateNote].filter(Boolean).join('\n\n')
       args.push('--plugin-dir', home)
       if (prompt) args.push(`--append-system-prompt=${prompt}`)
       env['CLAUDE_COWORK_MEMORY_PATH_OVERRIDE'] = memoryDir(home)
@@ -510,12 +518,13 @@ export function registerIpc(
   ipcMain.handle('app:planUsage', () => readPlan(60_000))
   const onUnread = (_e: unknown, list: unknown) => {
     if (!Array.isArray(list)) return
-    opts.onUnread?.(
-      list
-        .filter((x): x is { id: string; title: string } => !!x && typeof x.id === 'string' && typeof x.title === 'string')
-        .slice(0, 50)
-        .map((x) => ({ id: x.id.slice(0, 100), title: x.title.slice(0, 200) }))
-    )
+    const clean = list
+      .filter((x): x is { id: string; title: string } => !!x && typeof x.id === 'string' && typeof x.title === 'string')
+      .slice(0, 50)
+      .map((x) => ({ id: x.id.slice(0, 100), title: x.title.slice(0, 200) }))
+    unreadIds = new Set(clean.map((x) => x.id))
+    saveState()
+    opts.onUnread?.(clean)
   }
   ipcMain.on('tray:unread', onUnread)
   ipcMain.handle('tray:refreshUsage', () => readPlan(5_000))
