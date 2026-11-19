@@ -1177,6 +1177,11 @@ function WorkBlock({ parts }: { parts: TurnPart[] }) {
 
 type PartGroup = { kind: 'text'; text: string } | { kind: 'work'; parts: TurnPart[] }
 
+export function unsentQueued(state: string | undefined, turnOver: boolean): boolean {
+  if (state === 'started' || state === 'completed') return false
+  return !!state || turnOver
+}
+
 export function groupParts(parts: TurnPart[]): PartGroup[] {
   const groups: PartGroup[] = []
   for (const p of parts) {
@@ -2330,6 +2335,27 @@ function Detail({
         sending.current = false
       })
   }
+  const queueStates = live?.queue
+  const turnOver = !live || live.state === 'idle' || live.state === 'error'
+  useEffect(() => {
+    if (!queueStates) return
+    const done = outbox.filter((m) => m.uuid && queueStates[m.uuid] === 'completed')
+    const back = outbox.filter((m) => m.uuid && unsentQueued(queueStates[m.uuid], turnOver))
+    if (!done.length && !back.length) return
+    const t = setTimeout(
+      () => {
+        if (!alive.current) return
+        const gone = new Set([...done, ...back].map((m) => m.id))
+        setOutbox((o) => o.filter((m) => !gone.has(m.id)))
+        if (!back.length) return
+        const texts = back.map((m) => sentDrafts.current.get(m.id)?.typed ?? stripImageMarkers(m.text))
+        setText((cur) => [...texts, cur].filter((x) => x.trim()).join('\n'))
+        setSendError(back.length === 1 ? 'Claude stopped before it got to your queued message. It is back in the box.' : 'Claude stopped before it got to your queued messages. They are back in the box.')
+      },
+      back.some((m) => !queueStates[m.uuid ?? '']) ? 3000 : 0
+    )
+    return () => clearTimeout(t)
+  }, [outbox, queueStates, turnOver])
   const errorLine = sendError ?? live?.lastError
   const blockingAsk = live?.pending.find((p) => p.toolName !== 'AskUserQuestion')
   const continueWith = () => {

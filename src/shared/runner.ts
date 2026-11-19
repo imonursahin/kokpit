@@ -76,6 +76,7 @@ export type LiveSession = {
   lastError?: string
   startedAt: string
   background?: BackgroundTask[]
+  queue?: Record<string, string>
   activity?: Activity
 }
 

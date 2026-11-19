@@ -101,3 +101,12 @@ test('the side panel can grow but never gets narrower than its default width', a
   expect(clampPanelWidth(1500, 1800)).toBe(1020)
   expect(clampPanelWidth(900, 1000)).toBe(PANEL_MIN)
 })
+
+test('a queued message goes back to the box only when Claude cancelled it or stopped before starting it', async () => {
+  const { unsentQueued } = await import('./SessionDetailPage')
+  expect(unsentQueued('completed', true)).toBe(false)
+  expect(unsentQueued('started', true)).toBe(false)
+  expect(unsentQueued('cancelled', false)).toBe(true)
+  expect(unsentQueued(undefined, true)).toBe(true)
+  expect(unsentQueued(undefined, false)).toBe(false)
+})

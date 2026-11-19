@@ -355,6 +355,12 @@ export class Runner {
           this.rekey(l, msg.session_id)
           void this.applyTitle(l)
         }
+        const lifecycle = msg as unknown as { type?: string; uuid?: unknown; state?: unknown }
+        if (lifecycle.type === 'command_lifecycle' && typeof lifecycle.uuid === 'string' && typeof lifecycle.state === 'string') {
+          l.info.queue = Object.fromEntries([...Object.entries(l.info.queue ?? {}), [lifecycle.uuid, lifecycle.state] as const].slice(-50))
+          this.publish(l)
+          continue
+        }
         if (msg.type === 'system' && msg.subtype === 'init') {
           l.info.model = msg.model
           if (isRunnerMode(msg.permissionMode)) l.info.mode = msg.permissionMode

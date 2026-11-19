@@ -424,3 +424,31 @@ test('Esc stops the turn, cancels queued messages in the same step, and stops ba
   expect(stopTask.mock.calls.map((c) => c[0])).toContain('w2')
   runner.dispose()
 })
+
+test('the live session keeps the lifecycle of each queued message so the UI can settle it', async () => {
+  const sdk = await import('@anthropic-ai/claude-agent-sdk')
+  let wake: () => void = () => {}
+  const msgs: unknown[] = []
+  const feed = (m: unknown) => {
+    msgs.push(m)
+    wake()
+  }
+  vi.mocked(sdk.query).mockImplementation((() => ({
+    close: vi.fn(),
+    async *[Symbol.asyncIterator]() {
+      while (true) {
+        if (msgs.length) yield msgs.shift()
+        else await new Promise<void>((r) => (wake = r))
+      }
+    }
+  })) as never)
+  const { Runner } = await import('./runner')
+  const runner = new Runner(() => {})
+  await runner.start({ cwd: process.cwd(), prompt: 'go' })
+  feed({ type: 'system', subtype: 'init', session_id: 's3', model: 'm', permissionMode: 'default' })
+  feed({ type: 'command_lifecycle', uuid: 'q-1', state: 'started', session_id: 's3' })
+  feed({ type: 'command_lifecycle', uuid: 'q-2', state: 'cancelled', session_id: 's3' })
+  feed({ type: 'command_lifecycle', uuid: 'q-1', state: 'completed', session_id: 's3' })
+  await vi.waitFor(() => expect(runner.list()[0]?.queue).toEqual({ 'q-1': 'completed', 'q-2': 'cancelled' }))
+  runner.dispose()
+})
