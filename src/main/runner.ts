@@ -358,6 +358,7 @@ export class Runner {
         const lifecycle = msg as unknown as { type?: string; uuid?: unknown; state?: unknown }
         if (lifecycle.type === 'command_lifecycle' && typeof lifecycle.uuid === 'string' && typeof lifecycle.state === 'string') {
           l.info.queue = Object.fromEntries([...Object.entries(l.info.queue ?? {}), [lifecycle.uuid, lifecycle.state] as const].slice(-50))
+          if (lifecycle.state === 'started') l.info.lastError = undefined
           this.publish(l)
           continue
         }
@@ -499,6 +500,7 @@ export class Runner {
       l.effort = s.effort
     }
     const uuid = l.input.push(text, pics)
+    if (l.info.state === 'idle' || l.info.state === 'error') l.info.lastError = undefined
     if (l.info.state !== 'waiting') l.info.state = 'running'
     this.publish(l)
     return uuid

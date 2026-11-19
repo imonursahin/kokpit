@@ -425,7 +425,7 @@ test('Esc stops the turn, cancels queued messages in the same step, and stops ba
   runner.dispose()
 })
 
-test('the live session keeps the lifecycle of each queued message so the UI can settle it', async () => {
+test('the live session keeps the lifecycle of each queued message, and a new turn clears the last turn\'s error', async () => {
   const sdk = await import('@anthropic-ai/claude-agent-sdk')
   let wake: () => void = () => {}
   const msgs: unknown[] = []
@@ -446,9 +446,41 @@ test('the live session keeps the lifecycle of each queued message so the UI can 
   const runner = new Runner(() => {})
   await runner.start({ cwd: process.cwd(), prompt: 'go' })
   feed({ type: 'system', subtype: 'init', session_id: 's3', model: 'm', permissionMode: 'default' })
+  feed({ type: 'result', subtype: 'error_during_execution', is_error: true, errors: ['API Error: No response from API'], total_cost_usd: 0, session_id: 's3' })
+  await vi.waitFor(() => expect(runner.list()[0]?.lastError).toBeTruthy())
   feed({ type: 'command_lifecycle', uuid: 'q-1', state: 'started', session_id: 's3' })
+  await vi.waitFor(() => expect(runner.list()[0]?.lastError).toBeUndefined())
   feed({ type: 'command_lifecycle', uuid: 'q-2', state: 'cancelled', session_id: 's3' })
   feed({ type: 'command_lifecycle', uuid: 'q-1', state: 'completed', session_id: 's3' })
   await vi.waitFor(() => expect(runner.list()[0]?.queue).toEqual({ 'q-1': 'completed', 'q-2': 'cancelled' }))
+  runner.dispose()
+})
+
+test('sending a new message after a failed turn clears the old error', async () => {
+  const sdk = await import('@anthropic-ai/claude-agent-sdk')
+  let wake: () => void = () => {}
+  const msgs: unknown[] = []
+  const feed = (m: unknown) => {
+    msgs.push(m)
+    wake()
+  }
+  vi.mocked(sdk.query).mockImplementation((() => ({
+    close: vi.fn(),
+    async *[Symbol.asyncIterator]() {
+      while (true) {
+        if (msgs.length) yield msgs.shift()
+        else await new Promise<void>((r) => (wake = r))
+      }
+    }
+  })) as never)
+  const { Runner } = await import('./runner')
+  const runner = new Runner(() => {})
+  await runner.start({ cwd: process.cwd(), prompt: 'go' })
+  feed({ type: 'system', subtype: 'init', session_id: 's4', model: 'm', permissionMode: 'default' })
+  feed({ type: 'result', subtype: 'error_during_execution', is_error: true, errors: ['API Error: No response from API'], total_cost_usd: 0, session_id: 's4' })
+  await vi.waitFor(() => expect(runner.list()[0]).toMatchObject({ state: 'error' }))
+  expect(runner.list()[0]?.lastError).toBeTruthy()
+  await runner.send('s4', 'devam')
+  expect(runner.list()[0]).toMatchObject({ state: 'running', lastError: undefined })
   runner.dispose()
 })
