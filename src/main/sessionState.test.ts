@@ -19,3 +19,14 @@ test('the session state file lists pinned sessions first, then the newest, with 
     ['T b', 'waiting', false, false, true]
   ])
 })
+
+test('writes that overlap finish in order without failing, and the last one wins', async () => {
+  const { mkdtempSync, readFileSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const { writeSessionState } = await import('./sessionState')
+  const file = join(mkdtempSync(join(tmpdir(), 'kokpit-state-')), 'sessions-state.json')
+  const state = (n: number) => ({ updatedAt: String(n), sessions: [] })
+  await Promise.all([1, 2, 3, 4, 5].map((n) => writeSessionState(file, state(n))))
+  expect(JSON.parse(readFileSync(file, 'utf8')).updatedAt).toBe('5')
+})

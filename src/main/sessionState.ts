@@ -35,8 +35,14 @@ export function sessionStateNote(file: string): string {
   return `Kokpit keeps the live list of the user's sessions in ${file}: each session's name, status (waiting, running, done, error), whether the user has not read it yet (unread), whether the user pinned it (pinned, listed first), and its last summary. Read that file when the user asks about their other sessions, and use a session's name there when messaging it with SendMessage.`
 }
 
-export async function writeSessionState(file: string, state: SessionStateFile): Promise<void> {
-  const tmp = `${file}.tmp`
-  await writeFile(tmp, `${JSON.stringify(state, null, 2)}\n`)
-  await rename(tmp, file)
+let writing: Promise<void> = Promise.resolve()
+
+export function writeSessionState(file: string, state: SessionStateFile): Promise<void> {
+  const run = writing.then(async () => {
+    const tmp = `${file}.tmp`
+    await writeFile(tmp, `${JSON.stringify(state, null, 2)}\n`)
+    await rename(tmp, file)
+  })
+  writing = run.catch(() => undefined)
+  return run
 }
