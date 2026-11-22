@@ -295,7 +295,7 @@ export function OverviewPage({
     let alive = true
     void api.integrations.status().then((list) => {
       if (!alive) return
-      const on = (id: 'jira' | 'github') => list.find((c) => c.id === id)?.status === 'connected'
+      const on = (id: 'jira' | 'github') => list.some((c) => c.id === id && c.status !== 'disconnected')
       if (on('jira'))
         api.integrations
           .jiraIssues()
@@ -401,25 +401,19 @@ export function OverviewPage({
         </div>
       </Section>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12, padding: '22px 28px 0' }}>
+      {(jira.state !== 'off' || prs.state !== 'off') && (
+      <div style={{ display: 'grid', gridTemplateColumns: jira.state !== 'off' && prs.state !== 'off' ? 'repeat(2, minmax(0, 1fr))' : 'minmax(0, 1fr)', gap: 12, padding: '22px 28px 0' }}>
+        {jira.state !== 'off' && (
         <Card title="Jira · active sprint" action={<LinkButton onClick={() => onGo('jira')}>Jira tasks</LinkButton>}>
           {jira.state === 'loading' && <Empty>Loading…</Empty>}
-          {jira.state === 'off' && (
-            <Empty>
-              Jira isn’t connected. <LinkButton onClick={() => onGo('connections')}>Connect</LinkButton>
-            </Empty>
-          )}
           {jira.state === 'error' && <Empty>{cleanError(jira.message)}</Empty>}
           {jira.state === 'ready' && <Counts items={JIRA_GROUPS.map((g) => ({ label: g.label, value: jira.data.filter(g.match).length }))} />}
         </Card>
+        )}
 
+        {prs.state !== 'off' && (
         <Card title="Pull requests" action={<LinkButton onClick={() => onGo('prs')}>Pull requests</LinkButton>}>
           {prs.state === 'loading' && <Empty>Loading…</Empty>}
-          {prs.state === 'off' && (
-            <Empty>
-              GitHub isn’t connected. <LinkButton onClick={() => onGo('connections')}>Connect</LinkButton>
-            </Empty>
-          )}
           {prs.state === 'error' && <Empty>{cleanError(prs.message)}</Empty>}
           {prs.state === 'ready' && (
             <Counts
@@ -432,7 +426,9 @@ export function OverviewPage({
             />
           )}
         </Card>
+        )}
       </div>
+      )}
 
       <Section title="Recent sessions" action={<LinkButton onClick={() => onGo('sessions')}>All sessions</LinkButton>}>
         <div style={{ borderTop: '1px solid var(--line)', marginBottom: 28 }}>
