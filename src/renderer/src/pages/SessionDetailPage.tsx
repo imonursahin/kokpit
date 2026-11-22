@@ -1970,7 +1970,7 @@ function Detail({
       })
   }
   const [tab, setTab] = useState<RightTab>(data.tab)
-  const [panelOpen, setPanelOpen] = useState(true)
+  const [panelOpen, setPanelOpen] = useState(false)
   const [panelWidth, setPanelWidth] = useState(PANEL_MIN)
   useEffect(() => {
     if (panelOpen) setPanelWidth(PANEL_MIN)
