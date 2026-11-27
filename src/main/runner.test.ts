@@ -484,3 +484,29 @@ test('sending a new message after a failed turn clears the old error', async () 
   expect(runner.list()[0]).toMatchObject({ state: 'running', lastError: undefined })
   runner.dispose()
 })
+
+test('reconnecting an MCP server reaches every running session and reports the ones that failed', async () => {
+  const sdk = await import('@anthropic-ai/claude-agent-sdk')
+  let n = 0
+  vi.mocked(sdk.query).mockImplementation((() => {
+    const fail = n++ === 1
+    return {
+      close: vi.fn(),
+      reconnectMcpServer: vi.fn(async () => {
+        if (fail) throw new Error('server did not start')
+      }),
+      async *[Symbol.asyncIterator]() {
+        await new Promise(() => {})
+      }
+    }
+  }) as never)
+  const { Runner } = await import('./runner')
+  const runner = new Runner(() => {})
+  await runner.start({ cwd: process.cwd(), prompt: 'a', title: 'first' })
+  await runner.start({ cwd: process.cwd(), prompt: 'b', title: 'second' })
+  const r = await runner.reconnectMcp('local-db')
+  expect(r.sessions).toBe(1)
+  expect(r.failed).toEqual(['second: server did not start'])
+  await expect(runner.reconnectMcp('bad name')).rejects.toThrow('Invalid server name')
+  runner.dispose()
+})

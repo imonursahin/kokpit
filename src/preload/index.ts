@@ -93,6 +93,7 @@ const api = {
     status: (): Promise<McpServerInfo[]> => ipcRenderer.invoke('mcp:status'),
     remove: (name: string, scope: string, transport?: string): Promise<string> => ipcRenderer.invoke('mcp:remove', name, scope, transport),
     logout: (name: string): Promise<string> => ipcRenderer.invoke('mcp:logout', name),
+    reconnect: (name: string): Promise<{ sessions: number; failed: string[] }> => ipcRenderer.invoke('mcp:reconnect', name),
     add: (input: McpAddInput): Promise<string> => ipcRenderer.invoke('mcp:add', input)
   },
   plugins: {

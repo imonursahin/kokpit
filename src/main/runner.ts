@@ -644,6 +644,14 @@ export class Runner {
     await l.q.stopTask(taskId)
   }
 
+  async reconnectMcp(name: unknown): Promise<{ sessions: number; failed: string[] }> {
+    if (typeof name !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(name)) throw new Error('Invalid server name')
+    const live = [...this.live.values()]
+    const results = await Promise.allSettled(live.map((l) => l.q.reconnectMcpServer(name)))
+    const failed = results.flatMap((r, i) => (r.status === 'rejected' ? [`${live[i]?.info.title || live[i]?.key}: ${(r.reason as Error)?.message ?? r.reason}`] : []))
+    return { sessions: live.length - failed.length, failed }
+  }
+
   close(sessionId: unknown): void {
     if (typeof sessionId !== 'string') return
     const l = this.find(sessionId)

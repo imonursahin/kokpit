@@ -4,7 +4,7 @@ import { Icon, PrimaryButton } from '@/components/primitives'
 import { TerminalModal } from '@/components/TerminalModal'
 
 const MONO = "'Geist Mono',monospace"
-const COLS = 'minmax(0,1fr) 128px 96px 320px'
+const COLS = 'minmax(0,1fr) 128px 96px 420px'
 
 const STATUS: Record<McpStatus, { label: string; color: string; bg: string; icon: string }> = {
   connected: { label: 'Connected', color: 'var(--ok)', bg: 'var(--ok-bg)', icon: 'check_circle' },
@@ -219,6 +219,26 @@ export function McpPage({ fileEditor }: { fileEditor: ReactNode }) {
       .finally(() => setBusy(null))
   }
 
+  const reconnect = (name: string) => {
+    setBusy(name)
+    setMsg(null)
+    api!.mcp
+      .reconnect(name)
+      .then(({ sessions, failed }) => {
+        if (failed.length) setMsg({ tone: 'err', text: `${name}: could not reconnect in ${failed.join('; ')}` })
+        else
+          setMsg({
+            tone: 'ok',
+            text: sessions
+              ? `${name} reconnected in ${sessions} running session${sessions === 1 ? '' : 's'}`
+              : `${name}: no Kokpit session is running. New sessions start with the latest version.`
+          })
+        setAttempt((a) => a + 1)
+      })
+      .catch((err: Error) => setMsg({ tone: 'err', text: err.message }))
+      .finally(() => setBusy(null))
+  }
+
   const connected = servers?.filter((s) => s.status === 'connected').length ?? 0
 
   return (
@@ -321,6 +341,9 @@ export function McpPage({ fileEditor }: { fileEditor: ReactNode }) {
               </div>
               <span style={{ fontSize: 12, color: 'var(--tx2)' }}>{SOURCE_LABEL[s.source] ?? SOURCE_LABEL[s.scope] ?? s.source}</span>
               <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', minWidth: 0 }}>
+                <Action busy={busy === s.name} title="Reconnect it in every running Kokpit session, for example after updating it" onClick={() => reconnect(s.name)}>
+                  Reconnect
+                </Action>
                 {s.canLogin && (
                   <Action
                     busy={busy === s.name}
